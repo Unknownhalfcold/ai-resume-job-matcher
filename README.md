@@ -1,69 +1,98 @@
-# AI Resume-Job Match Analyzer
+# AI Resume Job Matcher
 
-这是一个面向 GitHub 主页展示的 AI 简历与岗位匹配度分析工具项目。
+AI Resume Job Matcher 是一个简历与岗位匹配度分析工具。
 
-目标不是一开始就做一个复杂网站，而是按阶段做出一个能讲清楚、能演示、能逐步升级的作品：
+项目当前处于可测试的 Python MVP 阶段：用户提供简历文本和目标岗位 JD，系统输出匹配度分数、已匹配关键词、缺失关键词和简历优化建议。
 
-1. 先写清楚产品想解决什么问题。
-2. 再做一个可以本地运行的 Python Demo。
-3. 然后接入大模型，让它给出更像真实职业顾问的修改建议。
-4. 最后整理成 GitHub README、项目页面和简历项目经历。
+## 核心能力
 
-## 这个工具做什么
+- 对比简历文本与岗位 JD
+- 从岗位 JD 中识别关键能力要求
+- 基于权重计算匹配度分数
+- 输出已匹配关键词与缺失关键词
+- 生成结构化简历优化建议
+- 支持文本报告与 JSON 两种输出格式
 
-用户输入两段内容：
+## 当前版本范围
 
-- 简历内容
-- 岗位描述，也叫 JD
+当前版本使用本地文本文件作为输入，不依赖数据库，也不调用外部 AI API。
 
-工具输出：
+已完成：
 
-- 匹配度分数
-- 已经匹配的关键词
-- 简历缺失但岗位高频要求的关键词
-- 简历修改建议
-- 可以放进简历里的项目描述优化示例
+- 本地 Python 分析脚本
+- 示例简历与示例岗位 JD
+- 关键词权重评分逻辑
+- 文本与 JSON 输出
+- 产品需求、评分逻辑和路线图文档
 
-## 当前阶段
+暂未包含：
 
-现在处于第 2 阶段：Python Demo。
-
-Python Demo 可以理解为“能在本地跑起来的小版本”。它先不用复杂 AI，而是用关键词匹配验证核心流程。
+- Web 界面
+- 用户账号
+- 数据库存储
+- PDF/DOCX 简历解析
+- LLM 个性化改写建议
 
 ## 快速运行
 
-在项目根目录运行：
+运行示例分析：
 
 ```powershell
 py -X utf8 scripts/analyze_match.py
 ```
 
-如果想输出 JSON 格式：
+输出 JSON：
 
 ```powershell
 py -X utf8 scripts/analyze_match.py --format json
 ```
 
-JSON 可以理解为“方便程序读取的标准结果格式”。后面做网页时，前端页面就可以读取 JSON，再把分数、关键词和建议展示出来。
-
-如果你想分析自己的简历和岗位，可以先把内容保存成两个文本文件，然后运行：
+查看评分明细：
 
 ```powershell
-py -X utf8 scripts/analyze_match.py --resume my_resume.txt --job my_job.txt
+py -X utf8 scripts/analyze_match.py --debug
 ```
 
-## 项目文件
+分析自定义文件：
 
+```powershell
+py -X utf8 scripts/analyze_match.py --resume local_inputs/my_resume.txt --job local_inputs/my_job.txt
+```
+
+`local_inputs/` 已加入 `.gitignore`，用于存放个人简历和岗位文本，避免误提交隐私内容。
+
+## 评分逻辑
+
+当前版本采用关键词权重匹配：
+
+```text
+匹配度 = 已匹配关键词权重 / 岗位关键词总权重 * 100
+```
+
+示例：
+
+```text
+已匹配关键词权重 = 23
+岗位关键词总权重 = 53
+匹配度 = 23 / 53 * 100 = 43
+```
+
+详细说明见 `docs/SCORING.md`。
+
+## 项目结构
+
+- `scripts/analyze_match.py`：简历岗位匹配分析脚本
+- `examples/resume_sample.txt`：示例简历
+- `examples/job_sample.txt`：示例岗位 JD
 - `docs/PRD.md`：产品需求文档
-- `docs/ROADMAP.md`：分阶段执行路线
-- `docs/GLOSSARY.md`：初学者术语表
-- `docs/PYTHON_DEMO.md`：Python Demo 说明
-- `scripts/analyze_match.py`：关键词匹配分析脚本
-- `examples/resume_sample.txt`：测试用简历样例
-- `examples/job_sample.txt`：测试用岗位样例
+- `docs/SCORING.md`：评分逻辑说明
+- `docs/PYTHON_DEMO.md`：Python MVP 运行说明
+- `docs/ROADMAP.md`：产品路线图
 
-## 初学者重要提醒
+## 后续路线
 
-如果未来要把这个工具放到 GitHub Pages 上，不要把 AI API Key 写进前端网页代码。
-
-API Key 可以理解为“你调用 AI 服务的钥匙”。如果直接放到公开网页里，别人可以看到并使用它，可能产生费用。真实上线时，需要后端服务来保护它。
+1. 扩展关键词库和评分可解释性
+2. 建立可交互 Web 页面
+3. 接入 LLM 生成更个性化的简历优化建议
+4. 增加 PDF/DOCX 简历解析能力
+5. 在需要保存历史记录时引入数据库

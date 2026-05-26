@@ -88,6 +88,11 @@ def analyze(resume_text: str, job_text: str) -> dict[str, object]:
 
     return {
         "score": score,
+        "score_details": {
+            "matched_weight": matched_weight,
+            "total_job_weight": total_weight,
+            "formula": f"{matched_weight} / {total_weight} * 100" if total_weight else "0",
+        },
         "job_keywords": serialize_keywords(job_keywords),
         "matched_keywords": serialize_keywords(matched),
         "missing_keywords": serialize_keywords(missing),
@@ -123,7 +128,16 @@ def format_suggestions(suggestions: list[str]) -> str:
     return "\n".join(f"  {index}. {suggestion}" for index, suggestion in enumerate(suggestions, start=1))
 
 
-def print_text_report(result: dict[str, object]) -> None:
+def print_debug_report(result: dict[str, object]) -> None:
+    score_details = result["score_details"]  # type: ignore[assignment]
+    print()
+    print("分数计算明细：")
+    print(f"  已匹配关键词权重：{score_details['matched_weight']}")  # type: ignore[index]
+    print(f"  岗位关键词总权重：{score_details['total_job_weight']}")  # type: ignore[index]
+    print(f"  计算公式：{score_details['formula']}")  # type: ignore[index]
+
+
+def print_text_report(result: dict[str, object], debug: bool = False) -> None:
     print("AI 简历与岗位匹配度分析报告")
     print("=" * 36)
     print(f"匹配度分数：{result['score']}/100")
@@ -139,6 +153,9 @@ def print_text_report(result: dict[str, object]) -> None:
     print()
     print("修改建议：")
     print(format_suggestions(result["suggestions"]))  # type: ignore[arg-type]
+
+    if debug:
+        print_debug_report(result)
 
 
 def parse_args() -> argparse.Namespace:
@@ -161,6 +178,11 @@ def parse_args() -> argparse.Namespace:
         default="text",
         help="Output format.",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Show score calculation details in text output.",
+    )
     return parser.parse_args()
 
 
@@ -172,7 +194,7 @@ def main() -> None:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return
 
-    print_text_report(result)
+    print_text_report(result, debug=args.debug)
 
 
 if __name__ == "__main__":
