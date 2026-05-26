@@ -10,6 +10,7 @@ Web MVP 将当前 Python 规则匹配逻辑迁移到浏览器端，提供一个�
 - `assets/styles.css`：页面样式
 - `assets/app.js`：浏览器端匹配逻辑
 - `data/keywords.json`：共享关键词配置
+- `docs/scoring.html`：评分逻辑页面
 
 ## 本地预览
 

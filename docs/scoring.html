@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>评分逻辑说明 | AI Resume Job Matcher</title>
+    <link rel="stylesheet" href="../assets/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="../index.html" aria-label="AI Resume Job Matcher">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>AI Resume Job Matcher</span>
+      </a>
+      <nav class="nav-links" aria-label="页面导航">
+        <a href="../index.html#app">Analyzer</a>
+        <a href="../index.html#result">Result</a>
+        <a href="scoring.html">Scoring</a>
+        <a href="https://github.com/Unknownhalfcold/ai-resume-job-matcher">GitHub</a>
+      </nav>
+    </header>
+
+    <main class="doc-main">
+      <article class="doc-article">
+        <p class="eyebrow">Scoring Logic</p>
+        <h1>评分逻辑说明</h1>
+
+        <section>
+          <h2>概述</h2>
+          <p>当前 MVP 使用关键词权重匹配算法。评分目标不是替代招聘判断，而是帮助候选人快速了解简历是否覆盖了岗位 JD 中的显性要求。</p>
+        </section>
+
+        <section>
+          <h2>关键词模型</h2>
+          <p>系统中的每个关键词包含展示名称、能力分类、重要程度和同义表达。关键词配置维护在 <code>data/keywords.json</code>，Python MVP 和 Web MVP 共用这份配置。</p>
+          <pre><code>Keyword("SQL", "数据能力", 4, ("sql", "mysql", "postgresql"))</code></pre>
+        </section>
+
+        <section>
+          <h2>分数公式</h2>
+          <pre><code>匹配度 = 已匹配关键词权重 / 岗位关键词总权重 * 100</code></pre>
+          <p>岗位关键词总权重是 JD 中识别出的关键词权重总和；已匹配关键词权重是这些岗位关键词中同时出现在简历里的权重总和。</p>
+        </section>
+
+        <section>
+          <h2>示例</h2>
+          <p>如果岗位 JD 中识别出的关键词总权重为 <code>53</code>，简历覆盖的关键词权重为 <code>23</code>：</p>
+          <pre><code>匹配度 = 23 / 53 * 100 = 43</code></pre>
+          <p>最终展示为 <code>43/100</code>。</p>
+        </section>
+
+        <section>
+          <h2>分数解释</h2>
+          <div class="doc-table">
+            <div><strong>80-100</strong><span>关键词覆盖较强</span></div>
+            <div><strong>60-79</strong><span>匹配度中等，存在部分能力缺口</span></div>
+            <div><strong>40-59</strong><span>具备部分相关性，但优化空间明显</span></div>
+            <div><strong>0-39</strong><span>与目标岗位的显性要求匹配较弱</span></div>
+          </div>
+        </section>
+
+        <section>
+          <h2>当前边界</h2>
+          <p>当前分数只衡量关键词层面的匹配，尚不能完整评估经历深度、项目质量、业务影响、表达清晰度、经验真实性，以及关键词之外的上下文相关性。</p>
+        </section>
+      </article>
+    </main>
+  </body>
+</html>
