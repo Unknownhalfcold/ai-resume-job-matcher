@@ -45,7 +45,6 @@ AI Resume Job Matcher 用于帮助求职者评估简历与目标岗位 JD 的匹
 - 用户登录
 - 历史记录保存
 - PDF/DOCX 文件解析
-- 在线部署
 - LLM 自动改写
 - 自动生成最终简历
 
@@ -83,7 +82,6 @@ AI Resume Job Matcher 用于帮助求职者评估简历与目标岗位 JD 的匹
 
 ## 后续增强
 
-- Web 输入界面
 - LLM 个性化优化建议
 - 面向不同岗位方向的可配置关键词库
 - PDF/DOCX 简历解析

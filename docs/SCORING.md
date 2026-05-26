@@ -15,6 +15,8 @@
 - `weight`：重要程度
 - `aliases`：同义表达或相关表达
 
+关键词配置维护在 `data/keywords.json`，Python MVP 和 Web MVP 共用这份配置。
+
 示例：
 
 ```python

@@ -2,7 +2,7 @@
 
 AI Resume Job Matcher 是一个简历与岗位匹配度分析工具。
 
-项目当前处于可测试的 Python MVP 阶段：用户提供简历文本和目标岗位 JD，系统输出匹配度分数、已匹配关键词、缺失关键词和简历优化建议。
+项目当前处于可测试的 Web MVP 阶段：用户提供简历文本和目标岗位 JD，系统输出匹配度分数、已匹配关键词、缺失关键词和简历优化建议。
 
 ## 核心能力
 
@@ -11,7 +11,8 @@ AI Resume Job Matcher 是一个简历与岗位匹配度分析工具。
 - 基于权重计算匹配度分数
 - 输出已匹配关键词与缺失关键词
 - 生成结构化简历优化建议
-- 支持文本报告与 JSON 两种输出格式
+- 提供网页交互界面
+- 支持文本报告与 JSON 输出
 
 ## 当前版本范围
 
@@ -19,15 +20,16 @@ AI Resume Job Matcher 是一个简历与岗位匹配度分析工具。
 
 已完成：
 
+- 静态 Web MVP
 - 本地 Python 分析脚本
 - 示例简历与示例岗位 JD
 - 关键词权重评分逻辑
-- 文本与 JSON 输出
+- 共享关键词配置
+- 网页结果展示与 JSON 复制
 - 产品需求、评分逻辑和路线图文档
 
 暂未包含：
 
-- Web 界面
 - 用户账号
 - 数据库存储
 - PDF/DOCX 简历解析
@@ -35,7 +37,20 @@ AI Resume Job Matcher 是一个简历与岗位匹配度分析工具。
 
 ## 快速运行
 
-运行示例分析：
+启动网页：
+
+```powershell
+py -m http.server 8000
+```
+
+打开：
+
+```text
+http://localhost:8000
+```
+
+运行命令行示例分析：
+
 
 ```powershell
 py -X utf8 scripts/analyze_match.py
@@ -81,18 +96,23 @@ py -X utf8 scripts/analyze_match.py --resume local_inputs/my_resume.txt --job lo
 
 ## 项目结构
 
+- `index.html`：Web MVP 页面
+- `assets/styles.css`：网页样式
+- `assets/app.js`：浏览器端匹配逻辑
+- `data/keywords.json`：共享关键词配置
 - `scripts/analyze_match.py`：简历岗位匹配分析脚本
 - `examples/resume_sample.txt`：示例简历
 - `examples/job_sample.txt`：示例岗位 JD
 - `docs/PRD.md`：产品需求文档
 - `docs/SCORING.md`：评分逻辑说明
 - `docs/PYTHON_DEMO.md`：Python MVP 运行说明
+- `docs/WEB_MVP.md`：Web MVP 运行说明
 - `docs/ROADMAP.md`：产品路线图
 
 ## 后续路线
 
 1. 扩展关键词库和评分可解释性
-2. 建立可交互 Web 页面
+2. 优化 Web 页面交互和响应式体验
 3. 接入 LLM 生成更个性化的简历优化建议
 4. 增加 PDF/DOCX 简历解析能力
 5. 在需要保存历史记录时引入数据库
