@@ -26,15 +26,39 @@
 
 ## 当前阶段
 
-现在处于第 1 阶段：PRD + 原型图。
+现在处于第 2 阶段：Python Demo。
 
-PRD 可以理解为“产品说明书”。它的作用是先把工具的目标、用户、流程和输出结果讲清楚，避免还没想明白就开始写代码。
+Python Demo 可以理解为“能在本地跑起来的小版本”。它先不用复杂 AI，而是用关键词匹配验证核心流程。
+
+## 快速运行
+
+在项目根目录运行：
+
+```powershell
+py -X utf8 scripts/analyze_match.py
+```
+
+如果想输出 JSON 格式：
+
+```powershell
+py -X utf8 scripts/analyze_match.py --format json
+```
+
+JSON 可以理解为“方便程序读取的标准结果格式”。后面做网页时，前端页面就可以读取 JSON，再把分数、关键词和建议展示出来。
+
+如果你想分析自己的简历和岗位，可以先把内容保存成两个文本文件，然后运行：
+
+```powershell
+py -X utf8 scripts/analyze_match.py --resume my_resume.txt --job my_job.txt
+```
 
 ## 项目文件
 
 - `docs/PRD.md`：产品需求文档
 - `docs/ROADMAP.md`：分阶段执行路线
 - `docs/GLOSSARY.md`：初学者术语表
+- `docs/PYTHON_DEMO.md`：Python Demo 说明
+- `scripts/analyze_match.py`：关键词匹配分析脚本
 - `examples/resume_sample.txt`：测试用简历样例
 - `examples/job_sample.txt`：测试用岗位样例
 
@@ -43,4 +67,3 @@ PRD 可以理解为“产品说明书”。它的作用是先把工具的目标�
 如果未来要把这个工具放到 GitHub Pages 上，不要把 AI API Key 写进前端网页代码。
 
 API Key 可以理解为“你调用 AI 服务的钥匙”。如果直接放到公开网页里，别人可以看到并使用它，可能产生费用。真实上线时，需要后端服务来保护它。
-
