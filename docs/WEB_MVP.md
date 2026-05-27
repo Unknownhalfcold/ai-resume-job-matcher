@@ -12,6 +12,8 @@ Web MVP 将当前 Python 规则匹配逻辑迁移到浏览器端，提供一个�
 - `data/keywords.json`：共享关键词配置
 - `docs/scoring.html`：评分逻辑页面
 
+如果后端 `http://localhost:8001` 正在运行，前端会自动使用 API 模式；如果后端未运行，前端会继续使用浏览器本地规则分析。
+
 ## 本地预览
 
 在项目根目录启动本地服务：

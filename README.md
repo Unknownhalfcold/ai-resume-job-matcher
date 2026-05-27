@@ -22,6 +22,7 @@ AI Resume Job Matcher 是一个简历与岗位匹配度分析工具。
 - 标记高优先级缺口
 - 生成结构化简历优化建议
 - 提供网页交互界面
+- 提供 FastAPI 后端接口
 - 支持文本报告与 JSON 输出
 
 ## 当前版本范围
@@ -38,6 +39,7 @@ AI Resume Job Matcher 是一个简历与岗位匹配度分析工具。
 - 网页结果展示与 JSON 复制
 - 开始页产品入口
 - 能力维度和优先级结果展示
+- FastAPI API MVP
 - 产品需求、评分逻辑和路线图文档
 
 暂未包含：
@@ -67,6 +69,16 @@ http://localhost:8000
 ```powershell
 py -X utf8 scripts/analyze_match.py
 ```
+
+启动后端 API：
+
+```powershell
+py -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m uvicorn api.server:app --reload --port 8001
+```
+
+本地前端会自动检测 `http://localhost:8001`。后端在线时使用 API 模式；后端未运行时使用浏览器本地分析。
 
 输出 JSON：
 
@@ -112,6 +124,8 @@ py -X utf8 scripts/analyze_match.py --resume local_inputs/my_resume.txt --job lo
 - `assets/styles.css`：网页样式
 - `assets/app.js`：浏览器端匹配逻辑
 - `data/keywords.json`：共享关键词配置
+- `api/server.py`：FastAPI 后端接口
+- `requirements.txt`：后端依赖
 - `scripts/analyze_match.py`：简历岗位匹配分析脚本
 - `examples/resume_sample.txt`：示例简历
 - `examples/job_sample.txt`：示例岗位 JD
@@ -119,6 +133,7 @@ py -X utf8 scripts/analyze_match.py --resume local_inputs/my_resume.txt --job lo
 - `docs/SCORING.md`：评分逻辑说明
 - `docs/PYTHON_DEMO.md`：Python MVP 运行说明
 - `docs/WEB_MVP.md`：Web MVP 运行说明
+- `docs/API_MVP.md`：API MVP 运行说明
 - `docs/ROADMAP.md`：产品路线图
 
 ## 后续路线

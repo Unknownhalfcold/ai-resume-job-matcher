@@ -1,7 +1,11 @@
 const state = {
   keywords: [],
   lastResult: null,
+  apiBaseUrl: "",
+  apiAvailable: false,
 };
+
+const BACKEND_TIMEOUT_MS = 900;
 
 const SAMPLE_RESUME = `姓名：示例用户
 
@@ -50,7 +54,43 @@ const elements = {
   categorySummary: document.querySelector("#category-summary"),
   priorityList: document.querySelector("#priority-list"),
   suggestionList: document.querySelector("#suggestion-list"),
+  runtimeStatus: document.querySelector("#runtime-status"),
 };
+
+function getApiBaseUrlCandidate() {
+  const params = new URLSearchParams(window.location.search);
+  const explicitApiUrl = params.get("api");
+
+  if (explicitApiUrl) {
+    return explicitApiUrl.replace(/\/$/, "");
+  }
+
+  if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+    return "http://localhost:8001";
+  }
+
+  return "";
+}
+
+async function fetchJsonWithTimeout(url, options = {}, timeoutMs = BACKEND_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    return await response.json();
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
 
 function normalize(text) {
   return text.toLowerCase().replaceAll("／", "/").replaceAll("，", ",");
@@ -137,6 +177,40 @@ function analyze(resumeText, jobText) {
     suggestion_items: suggestionItems,
     suggestions: suggestionItems.map((item) => item.suggestion),
   };
+}
+
+async function analyzeViaApi(resumeText, jobText) {
+  return fetchJsonWithTimeout(
+    `${state.apiBaseUrl}/api/analyze`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        resume: resumeText,
+        job: jobText,
+      }),
+    },
+    8000,
+  );
+}
+
+async function runAnalysis(resumeText, jobText) {
+  if (state.apiAvailable) {
+    try {
+      elements.runNote.textContent = "后端 API 分析中";
+      return await analyzeViaApi(resumeText, jobText);
+    } catch (error) {
+      state.apiAvailable = false;
+      state.apiBaseUrl = "";
+      elements.runtimeStatus.textContent = "Browser mode";
+      elements.runNote.textContent = "后端不可用，已切换本地分析";
+      console.warn(error);
+    }
+  }
+
+  return analyze(resumeText, jobText);
 }
 
 function scoreLabel(score) {
@@ -327,8 +401,28 @@ async function loadKeywords() {
   }
 }
 
+async function detectBackend() {
+  const apiBaseUrl = getApiBaseUrlCandidate();
+
+  if (!apiBaseUrl) {
+    elements.runtimeStatus.textContent = "Browser mode";
+    return;
+  }
+
+  try {
+    const health = await fetchJsonWithTimeout(`${apiBaseUrl}/health`);
+    state.apiBaseUrl = apiBaseUrl;
+    state.apiAvailable = health.status === "ok";
+    elements.runtimeStatus.textContent = state.apiAvailable ? "API mode" : "Browser mode";
+  } catch (error) {
+    state.apiBaseUrl = "";
+    state.apiAvailable = false;
+    elements.runtimeStatus.textContent = "Browser mode";
+  }
+}
+
 function bindEvents() {
-  elements.analyzeButton.addEventListener("click", () => {
+  elements.analyzeButton.addEventListener("click", async () => {
     const resumeText = elements.resumeInput.value.trim();
     const jobText = elements.jobInput.value.trim();
 
@@ -337,14 +431,14 @@ function bindEvents() {
       return;
     }
 
-    renderResult(analyze(resumeText, jobText));
+    renderResult(await runAnalysis(resumeText, jobText));
     elements.runNote.textContent = `关键词库：${state.keywords.length} 项`;
   });
 
-  elements.loadSampleButton.addEventListener("click", () => {
+  elements.loadSampleButton.addEventListener("click", async () => {
     elements.resumeInput.value = SAMPLE_RESUME;
     elements.jobInput.value = SAMPLE_JOB;
-    renderResult(analyze(SAMPLE_RESUME, SAMPLE_JOB));
+    renderResult(await runAnalysis(SAMPLE_RESUME, SAMPLE_JOB));
     elements.runNote.textContent = `关键词库：${state.keywords.length} 项`;
   });
 
@@ -372,4 +466,5 @@ renderEmptyResult();
 elements.analyzeButton.disabled = true;
 elements.loadSampleButton.disabled = true;
 bindEvents();
+detectBackend();
 loadKeywords();

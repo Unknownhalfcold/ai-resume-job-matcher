@@ -62,7 +62,13 @@ py -X utf8 scripts/analyze_match.py
 
 ## 阶段 5：LLM 建议层
 
-状态：计划中
+状态：准备中
+
+已完成：
+
+- 搭建 FastAPI 后端 MVP
+- 提供 `/health`、`/api/keywords`、`/api/analyze`
+- 本地前端可自动切换 API 模式
 
 计划内容：
 
