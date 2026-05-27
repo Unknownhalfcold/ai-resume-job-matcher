@@ -65,7 +65,7 @@ def analyze(
     matched_weight = sum(keyword.weight for keyword in matched)
     score = round((matched_weight / total_weight) * 100) if total_weight else 0
 
-    suggestions = [keyword.suggestion for keyword in missing]
+    suggestion_items = build_suggestion_items(missing)
 
     return {
         "score": score,
@@ -77,7 +77,10 @@ def analyze(
         "job_keywords": serialize_keywords(job_keywords),
         "matched_keywords": serialize_keywords(matched),
         "missing_keywords": serialize_keywords(missing),
-        "suggestions": suggestions,
+        "category_summary": build_category_summary(job_keywords, matched),
+        "priority_gaps": suggestion_items[:5],
+        "suggestion_items": suggestion_items,
+        "suggestions": [str(item["suggestion"]) for item in suggestion_items],
     }
 
 
@@ -89,6 +92,73 @@ def serialize_keywords(keywords: list[Keyword]) -> list[dict[str, object]]:
             "weight": keyword.weight,
         }
         for keyword in keywords
+    ]
+
+
+def priority_label(weight: int) -> str:
+    if weight >= 5:
+        return "高优先级"
+    if weight >= 3:
+        return "中优先级"
+    return "低优先级"
+
+
+def build_category_summary(
+    job_keywords: list[Keyword],
+    matched_keywords: list[Keyword],
+) -> list[dict[str, object]]:
+    matched_set = set(matched_keywords)
+    grouped: dict[str, dict[str, object]] = {}
+
+    for keyword in job_keywords:
+        group = grouped.setdefault(
+            keyword.category,
+            {
+                "category": keyword.category,
+                "matched_weight": 0,
+                "total_weight": 0,
+                "score": 0,
+                "matched_keywords": [],
+                "missing_keywords": [],
+            },
+        )
+        group["total_weight"] = int(group["total_weight"]) + keyword.weight
+
+        if keyword in matched_set:
+            group["matched_weight"] = int(group["matched_weight"]) + keyword.weight
+            group["matched_keywords"].append(keyword)  # type: ignore[union-attr]
+        else:
+            group["missing_keywords"].append(keyword)  # type: ignore[union-attr]
+
+    summaries = []
+    for group in grouped.values():
+        total_weight = int(group["total_weight"])
+        matched_weight = int(group["matched_weight"])
+        summaries.append(
+            {
+                "category": group["category"],
+                "matched_weight": matched_weight,
+                "total_weight": total_weight,
+                "score": round((matched_weight / total_weight) * 100) if total_weight else 0,
+                "matched_keywords": serialize_keywords(group["matched_keywords"]),  # type: ignore[arg-type]
+                "missing_keywords": serialize_keywords(group["missing_keywords"]),  # type: ignore[arg-type]
+            }
+        )
+
+    return summaries
+
+
+def build_suggestion_items(missing_keywords: list[Keyword]) -> list[dict[str, object]]:
+    sorted_keywords = sorted(missing_keywords, key=lambda keyword: (-keyword.weight, keyword.name))
+    return [
+        {
+            "name": keyword.name,
+            "category": keyword.category,
+            "weight": keyword.weight,
+            "priority": priority_label(keyword.weight),
+            "suggestion": keyword.suggestion,
+        }
+        for keyword in sorted_keywords
     ]
 
 

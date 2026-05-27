@@ -4,15 +4,16 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>AI Resume Job Matcher</title>
-    <link rel="stylesheet" href="assets/styles.css">
+    <link rel="stylesheet" href="assets/styles.css?v=2">
   </head>
   <body>
     <header class="topbar">
-      <a class="brand" href="#app" aria-label="AI Resume Job Matcher">
+      <a class="brand" href="#start" aria-label="AI Resume Job Matcher">
         <span class="brand-mark" aria-hidden="true"></span>
         <span>AI Resume Job Matcher</span>
       </a>
       <nav class="nav-links" aria-label="页面导航">
+        <a href="#start">Start</a>
         <a href="#app">Analyzer</a>
         <a href="#result">Result</a>
         <a href="docs/scoring.html">Scoring</a>
@@ -21,11 +22,62 @@
     </header>
 
     <main>
+      <section class="hero" id="start" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="eyebrow">Resume Intelligence MVP</p>
+          <h1 id="hero-title">让简历更贴近目标岗位</h1>
+          <p class="hero-subtitle">用可解释的匹配度、能力缺口和优化动作，把一次投递前的判断变得更清晰。</p>
+          <div class="hero-actions">
+            <a class="button primary" href="#app">开始分析</a>
+            <a class="button secondary" href="docs/scoring.html">查看评分逻辑</a>
+          </div>
+        </div>
+
+        <div class="hero-visual" aria-label="产品结果预览">
+          <div class="preview-shell">
+            <div class="preview-topline">
+              <span>Target Role</span>
+              <strong>AI 产品经理实习生</strong>
+            </div>
+            <div class="preview-score">
+              <div class="mini-ring" style="--score: 72">
+                <strong>72</strong>
+                <span>/100</span>
+              </div>
+              <div>
+                <h2>中高匹配</h2>
+                <p>主要缺口集中在产品原型和实验分析。</p>
+              </div>
+            </div>
+            <div class="preview-bars">
+              <div>
+                <span>产品能力</span>
+                <meter min="0" max="100" value="68"></meter>
+              </div>
+              <div>
+                <span>数据能力</span>
+                <meter min="0" max="100" value="84"></meter>
+              </div>
+              <div>
+                <span>协作能力</span>
+                <meter min="0" max="100" value="56"></meter>
+              </div>
+            </div>
+            <div class="preview-tags">
+              <span>需求分析</span>
+              <span>SQL</span>
+              <span>用户研究</span>
+              <span data-muted="true">A/B 测试</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section class="workspace" id="app" aria-labelledby="page-title">
         <div class="workspace-heading">
           <div>
-            <p class="eyebrow">Local rule-based MVP</p>
-            <h1 id="page-title">简历与岗位匹配分析</h1>
+            <p class="eyebrow">Analyzer</p>
+            <h2 id="page-title">简历与岗位匹配分析</h2>
           </div>
           <div class="status-strip" aria-label="当前版本状态">
             <span>v0.1</span>
@@ -95,6 +147,16 @@
               </section>
             </div>
 
+            <section class="result-block capability-breakdown" aria-labelledby="capability-title">
+              <h3 id="capability-title">能力维度</h3>
+              <div class="category-grid" id="category-summary"></div>
+            </section>
+
+            <section class="result-block priority-gaps" aria-labelledby="priority-title">
+              <h3 id="priority-title">优先缺口</h3>
+              <div class="priority-list" id="priority-list"></div>
+            </section>
+
             <section class="result-block suggestions" aria-labelledby="suggestion-title">
               <h3 id="suggestion-title">优化建议</h3>
               <ol id="suggestion-list"></ol>
@@ -104,6 +166,6 @@
       </section>
     </main>
 
-    <script src="assets/app.js"></script>
+    <script src="assets/app.js?v=2"></script>
   </body>
 </html>

@@ -47,6 +47,8 @@ const elements = {
   totalWeight: document.querySelector("#total-weight"),
   matchedList: document.querySelector("#matched-list"),
   missingList: document.querySelector("#missing-list"),
+  categorySummary: document.querySelector("#category-summary"),
+  priorityList: document.querySelector("#priority-list"),
   suggestionList: document.querySelector("#suggestion-list"),
 };
 
@@ -63,6 +65,47 @@ function serializeKeywords(keywords) {
   return keywords.map(({ name, category, weight }) => ({ name, category, weight }));
 }
 
+function priorityLabel(weight) {
+  if (weight >= 5) return "高优先级";
+  if (weight >= 3) return "中优先级";
+  return "低优先级";
+}
+
+function buildCategorySummary(jobKeywords, matchedKeywords) {
+  const matchedSet = new Set(matchedKeywords);
+  const groups = new Map();
+
+  jobKeywords.forEach((keyword) => {
+    if (!groups.has(keyword.category)) {
+      groups.set(keyword.category, {
+        category: keyword.category,
+        matched_weight: 0,
+        total_weight: 0,
+        score: 0,
+        matched_keywords: [],
+        missing_keywords: [],
+      });
+    }
+
+    const group = groups.get(keyword.category);
+    group.total_weight += keyword.weight;
+
+    if (matchedSet.has(keyword)) {
+      group.matched_weight += keyword.weight;
+      group.matched_keywords.push(keyword);
+    } else {
+      group.missing_keywords.push(keyword);
+    }
+  });
+
+  return [...groups.values()].map((group) => ({
+    ...group,
+    score: group.total_weight ? Math.round((group.matched_weight / group.total_weight) * 100) : 0,
+    matched_keywords: serializeKeywords(group.matched_keywords),
+    missing_keywords: serializeKeywords(group.missing_keywords),
+  }));
+}
+
 function analyze(resumeText, jobText) {
   const jobKeywords = state.keywords.filter((keyword) => containsAny(jobText, keyword.aliases));
   const matchedKeywords = jobKeywords.filter((keyword) => containsAny(resumeText, keyword.aliases));
@@ -70,6 +113,14 @@ function analyze(resumeText, jobText) {
   const totalWeight = jobKeywords.reduce((sum, keyword) => sum + keyword.weight, 0);
   const matchedWeight = matchedKeywords.reduce((sum, keyword) => sum + keyword.weight, 0);
   const score = totalWeight ? Math.round((matchedWeight / totalWeight) * 100) : 0;
+  const sortedMissingKeywords = [...missingKeywords].sort((a, b) => b.weight - a.weight || a.name.localeCompare(b.name));
+  const suggestionItems = sortedMissingKeywords.map((keyword) => ({
+    name: keyword.name,
+    category: keyword.category,
+    weight: keyword.weight,
+    priority: priorityLabel(keyword.weight),
+    suggestion: keyword.suggestion,
+  }));
 
   return {
     score,
@@ -81,7 +132,10 @@ function analyze(resumeText, jobText) {
     job_keywords: serializeKeywords(jobKeywords),
     matched_keywords: serializeKeywords(matchedKeywords),
     missing_keywords: serializeKeywords(missingKeywords),
-    suggestions: missingKeywords.map((keyword) => keyword.suggestion),
+    category_summary: buildCategorySummary(jobKeywords, matchedKeywords),
+    priority_gaps: suggestionItems.slice(0, 5),
+    suggestion_items: suggestionItems,
+    suggestions: suggestionItems.map((item) => item.suggestion),
   };
 }
 
@@ -114,6 +168,93 @@ function renderKeywordList(container, keywords, type) {
   keywords.forEach((keyword) => container.append(createPill(keyword, type)));
 }
 
+function renderCategorySummary(summaries) {
+  elements.categorySummary.replaceChildren();
+
+  if (!summaries.length) {
+    const empty = document.createElement("span");
+    empty.className = "empty-state";
+    empty.textContent = "暂无";
+    elements.categorySummary.append(empty);
+    return;
+  }
+
+  summaries.forEach((summary) => {
+    const card = document.createElement("article");
+    card.className = "category-card";
+
+    const header = document.createElement("div");
+    header.className = "category-card-header";
+
+    const title = document.createElement("strong");
+    title.textContent = summary.category;
+
+    const score = document.createElement("span");
+    score.textContent = `${summary.score}/100`;
+
+    header.append(title, score);
+
+    const bar = document.createElement("div");
+    bar.className = "category-bar";
+    bar.style.setProperty("--value", summary.score);
+
+    const meta = document.createElement("p");
+    meta.textContent = `${summary.matched_weight}/${summary.total_weight} 权重已覆盖`;
+
+    const missing = document.createElement("div");
+    missing.className = "category-missing";
+
+    if (summary.missing_keywords.length) {
+      summary.missing_keywords.forEach((keyword) => missing.append(createPill(keyword, "missing")));
+    } else {
+      const done = document.createElement("span");
+      done.className = "empty-state";
+      done.textContent = "主要关键词已覆盖";
+      missing.append(done);
+    }
+
+    card.append(header, bar, meta, missing);
+    elements.categorySummary.append(card);
+  });
+}
+
+function renderPriorityGaps(gaps) {
+  elements.priorityList.replaceChildren();
+
+  if (!gaps.length) {
+    const empty = document.createElement("span");
+    empty.className = "empty-state";
+    empty.textContent = "暂无";
+    elements.priorityList.append(empty);
+    return;
+  }
+
+  gaps.forEach((gap) => {
+    const card = document.createElement("article");
+    card.className = "priority-card";
+
+    const top = document.createElement("div");
+    top.className = "priority-card-top";
+
+    const title = document.createElement("strong");
+    title.textContent = gap.name;
+
+    const priority = document.createElement("span");
+    priority.textContent = gap.priority;
+
+    top.append(title, priority);
+
+    const meta = document.createElement("p");
+    meta.textContent = `${gap.category} · 权重 ${gap.weight}`;
+
+    const suggestion = document.createElement("p");
+    suggestion.textContent = gap.suggestion;
+
+    card.append(top, meta, suggestion);
+    elements.priorityList.append(card);
+  });
+}
+
 function renderSuggestions(suggestions, hasResult = true) {
   elements.suggestionList.replaceChildren();
 
@@ -126,10 +267,14 @@ function renderSuggestions(suggestions, hasResult = true) {
     return;
   }
 
-  suggestions.forEach((suggestion) => {
-    const item = document.createElement("li");
-    item.textContent = suggestion;
-    elements.suggestionList.append(item);
+  suggestions.forEach((suggestionItem) => {
+    const listItem = document.createElement("li");
+    const title = document.createElement("strong");
+    title.textContent = `${suggestionItem.name}：`;
+    const text = document.createElement("span");
+    text.textContent = suggestionItem.suggestion;
+    listItem.append(title, text);
+    elements.suggestionList.append(listItem);
   });
 }
 
@@ -146,7 +291,9 @@ function renderResult(result) {
 
   renderKeywordList(elements.matchedList, result.matched_keywords, "matched");
   renderKeywordList(elements.missingList, result.missing_keywords, "missing");
-  renderSuggestions(result.suggestions);
+  renderCategorySummary(result.category_summary);
+  renderPriorityGaps(result.priority_gaps);
+  renderSuggestions(result.suggestion_items);
 }
 
 function renderEmptyResult() {
@@ -159,6 +306,8 @@ function renderEmptyResult() {
   elements.copyJsonButton.disabled = true;
   renderKeywordList(elements.matchedList, [], "matched");
   renderKeywordList(elements.missingList, [], "missing");
+  renderCategorySummary([]);
+  renderPriorityGaps([]);
   renderSuggestions([], false);
 }
 
