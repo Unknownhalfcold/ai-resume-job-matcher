@@ -33,6 +33,8 @@ body {
 }
 
 button,
+input,
+select,
 textarea {
   font: inherit;
 }
@@ -455,7 +457,25 @@ textarea {
   outline: none;
 }
 
-textarea:focus {
+input,
+select {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.9);
+  outline: none;
+}
+
+select {
+  cursor: pointer;
+}
+
+textarea:focus,
+input:focus,
+select:focus {
   border-color: rgba(0, 113, 227, 0.72);
   box-shadow: 0 0 0 4px rgba(0, 113, 227, 0.12);
 }
@@ -655,6 +675,25 @@ textarea:focus {
 
 .ai-advice-status {
   margin-top: 10px;
+}
+
+.ai-settings {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.7fr) minmax(160px, 1fr) minmax(130px, 0.8fr);
+  gap: 10px;
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: #fbfbfd;
+}
+
+.compact-field {
+  min-width: 0;
+}
+
+.compact-field span {
+  font-size: 12px;
 }
 
 .ai-advice-content {
@@ -871,7 +910,8 @@ textarea:focus {
 
   .text-grid,
   .result-grid,
-  .category-grid {
+  .category-grid,
+  .ai-settings {
     grid-template-columns: 1fr;
   }
 

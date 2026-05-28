@@ -106,6 +106,41 @@ http://localhost:8001/docs
 
 很多第三方平台提供 OpenAI-compatible API。此时通常只需要更换环境变量，不需要改前端。
 
+## BYOK 模式
+
+BYOK 是 Bring Your Own Key，意思是用户使用自己的 API Key。
+
+当前项目支持两种 LLM Key 来源：
+
+```text
+1. 后端环境变量
+2. 用户本次请求传入的 llm_config
+```
+
+当用户在网页中填写自己的 API Key 时，前端会把它放入本次 `/api/ai-suggestions` 请求：
+
+```json
+{
+  "llm_config": {
+    "provider": "deepseek",
+    "api_style": "chat_completions",
+    "base_url": "https://api.deepseek.com",
+    "api_key": "用户自己的 API Key",
+    "model": "deepseek-v4-flash"
+  }
+}
+```
+
+安全边界：
+
+- API Key 不写入 GitHub。
+- API Key 不写入数据库。
+- API Key 不写入浏览器 localStorage。
+- API Key 只用于当前这次后端请求。
+- 页面刷新后，前端输入框会清空。
+
+后端收到 `llm_config` 后，会优先使用用户本次请求的配置；如果没有传入，则回退到服务器环境变量。
+
 ### DeepSeek 示例
 
 ```powershell

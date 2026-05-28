@@ -122,9 +122,18 @@ $env:LLM_MODEL="deepseek-v4-flash"
   "job": "岗位 JD 文本",
   "analysis": {
     "score": 43
+  },
+  "llm_config": {
+    "provider": "deepseek",
+    "api_style": "chat_completions",
+    "base_url": "https://api.deepseek.com",
+    "api_key": "用户自己的 API Key",
+    "model": "deepseek-v4-flash"
   }
 }
 ```
+
+`llm_config` 是可选字段。传入时优先使用用户本次请求的配置；不传入时使用后端环境变量。
 
 返回内容包括：
 

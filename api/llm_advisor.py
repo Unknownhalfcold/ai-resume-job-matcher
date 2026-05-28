@@ -4,7 +4,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -200,36 +200,77 @@ def get_env_value(*names: str) -> str | None:
     return None
 
 
-def get_llm_api_key() -> str:
-    return get_env_value("LLM_API_KEY", "OPENAI_API_KEY") or ""
+def get_override_value(config_override: Mapping[str, Any] | None, name: str) -> str | None:
+    if not config_override:
+        return None
+    value = config_override.get(name)
+    if isinstance(value, str):
+        value = value.strip()
+        return value or None
+    if value is None:
+        return None
+    return str(value)
 
 
-def get_llm_model() -> str:
-    return get_env_value("LLM_MODEL", "OPENAI_MODEL") or DEFAULT_LLM_MODEL
+def get_llm_api_key(config_override: Mapping[str, Any] | None = None) -> str:
+    return get_override_value(config_override, "api_key") or get_env_value("LLM_API_KEY", "OPENAI_API_KEY") or ""
 
 
-def get_llm_base_url() -> str | None:
-    return get_env_value("LLM_BASE_URL", "OPENAI_BASE_URL")
+def get_llm_model(config_override: Mapping[str, Any] | None = None) -> str:
+    return get_override_value(config_override, "model") or get_env_value("LLM_MODEL", "OPENAI_MODEL") or DEFAULT_LLM_MODEL
 
 
-def get_llm_api_style() -> APIStyle:
-    raw_style = (os.getenv("LLM_API_STYLE") or "").strip().lower()
+def get_llm_base_url(config_override: Mapping[str, Any] | None = None) -> str | None:
+    return get_override_value(config_override, "base_url") or get_env_value("LLM_BASE_URL", "OPENAI_BASE_URL")
+
+
+def get_llm_api_style(config_override: Mapping[str, Any] | None = None) -> APIStyle:
+    raw_style = (get_override_value(config_override, "api_style") or os.getenv("LLM_API_STYLE") or "").strip().lower()
     if raw_style in {"responses", "chat_completions"}:
         return raw_style  # type: ignore[return-value]
-    if get_llm_base_url():
+    if get_llm_base_url(config_override):
         return "chat_completions"
     return "responses"
 
 
-def get_llm_config() -> LLMConfig:
+def get_int_config_value(
+    config_override: Mapping[str, Any] | None,
+    name: str,
+    env_name: str,
+    default_value: int,
+) -> int:
+    raw_value = get_override_value(config_override, name) or os.getenv(env_name)
+    if raw_value is None:
+        return default_value
+    return int(raw_value)
+
+
+def get_float_config_value(
+    config_override: Mapping[str, Any] | None,
+    name: str,
+    env_name: str,
+    default_value: float,
+) -> float:
+    raw_value = get_override_value(config_override, name) or os.getenv(env_name)
+    if raw_value is None:
+        return default_value
+    return float(raw_value)
+
+
+def get_llm_config(config_override: Mapping[str, Any] | None = None) -> LLMConfig:
     return LLMConfig(
-        provider=os.getenv("LLM_PROVIDER", "openai"),
-        api_key=get_llm_api_key(),
-        model=get_llm_model(),
-        api_style=get_llm_api_style(),
-        base_url=get_llm_base_url(),
-        max_output_tokens=int(os.getenv("LLM_MAX_OUTPUT_TOKENS", str(DEFAULT_MAX_OUTPUT_TOKENS))),
-        temperature=float(os.getenv("LLM_TEMPERATURE", "0.2")),
+        provider=get_override_value(config_override, "provider") or os.getenv("LLM_PROVIDER", "openai"),
+        api_key=get_llm_api_key(config_override),
+        model=get_llm_model(config_override),
+        api_style=get_llm_api_style(config_override),
+        base_url=get_llm_base_url(config_override),
+        max_output_tokens=get_int_config_value(
+            config_override,
+            "max_output_tokens",
+            "LLM_MAX_OUTPUT_TOKENS",
+            DEFAULT_MAX_OUTPUT_TOKENS,
+        ),
+        temperature=get_float_config_value(config_override, "temperature", "LLM_TEMPERATURE", 0.2),
     )
 
 
@@ -375,8 +416,13 @@ def generate_with_chat_completions(
     return validate_advice(parse_json_object(content))
 
 
-def generate_advice(resume_text: str, job_text: str, analysis: dict[str, Any]) -> dict[str, Any]:
-    config = get_llm_config()
+def generate_advice(
+    resume_text: str,
+    job_text: str,
+    analysis: dict[str, Any],
+    config_override: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    config = get_llm_config(config_override)
     if not config.api_key:
         raise LLMConfigurationError("LLM_API_KEY or OPENAI_API_KEY is not configured.")
 

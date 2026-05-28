@@ -44,6 +44,11 @@ const elements = {
   clearButton: document.querySelector("#clear-all"),
   copyJsonButton: document.querySelector("#copy-json"),
   aiAdviceButton: document.querySelector("#ai-advice-button"),
+  llmProvider: document.querySelector("#llm-provider"),
+  llmBaseUrl: document.querySelector("#llm-base-url"),
+  llmModel: document.querySelector("#llm-model"),
+  llmApiKey: document.querySelector("#llm-api-key"),
+  llmApiStyle: document.querySelector("#llm-api-style"),
   runNote: document.querySelector("#run-note"),
   scoreRing: document.querySelector("#score-ring"),
   scoreValue: document.querySelector("#score-value"),
@@ -59,6 +64,45 @@ const elements = {
   aiAdviceStatus: document.querySelector("#ai-advice-status"),
   aiAdviceContent: document.querySelector("#ai-advice-content"),
   runtimeStatus: document.querySelector("#runtime-status"),
+};
+
+const LLM_PROVIDER_PRESETS = {
+  deepseek: {
+    provider: "deepseek",
+    baseUrl: "https://api.deepseek.com",
+    model: "deepseek-v4-flash",
+    apiStyle: "chat_completions",
+  },
+  dashscope: {
+    provider: "dashscope",
+    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    model: "qwen-turbo",
+    apiStyle: "chat_completions",
+  },
+  moonshot: {
+    provider: "moonshot",
+    baseUrl: "https://api.moonshot.cn/v1",
+    model: "",
+    apiStyle: "chat_completions",
+  },
+  siliconflow: {
+    provider: "siliconflow",
+    baseUrl: "https://api.siliconflow.cn/v1",
+    model: "",
+    apiStyle: "chat_completions",
+  },
+  openai: {
+    provider: "openai",
+    baseUrl: "",
+    model: "gpt-5.5",
+    apiStyle: "responses",
+  },
+  custom: {
+    provider: "custom",
+    baseUrl: "",
+    model: "",
+    apiStyle: "chat_completions",
+  },
 };
 
 function getApiBaseUrlCandidate() {
@@ -207,7 +251,53 @@ async function analyzeViaApi(resumeText, jobText) {
   );
 }
 
+function hasUserLlmKey() {
+  return Boolean(elements.llmApiKey.value.trim());
+}
+
+function hasCompleteUserLlmConfig() {
+  return hasUserLlmKey() && Boolean(elements.llmModel.value.trim());
+}
+
+function canGenerateAiAdvice() {
+  return state.apiAvailable && (state.llmConfigured || hasCompleteUserLlmConfig());
+}
+
+function collectUserLlmConfig() {
+  const apiKey = elements.llmApiKey.value.trim();
+
+  if (!apiKey) {
+    return null;
+  }
+
+  return {
+    provider: elements.llmProvider.value,
+    api_key: apiKey,
+    base_url: elements.llmBaseUrl.value.trim() || null,
+    model: elements.llmModel.value.trim() || null,
+    api_style: elements.llmApiStyle.value,
+  };
+}
+
+function updateAiAdviceAvailability() {
+  if (!state.lastResult) {
+    elements.aiAdviceButton.disabled = true;
+    return;
+  }
+
+  elements.aiAdviceButton.disabled = !canGenerateAiAdvice();
+}
+
+function applyProviderPreset(providerName) {
+  const preset = LLM_PROVIDER_PRESETS[providerName];
+  elements.llmBaseUrl.value = preset.baseUrl;
+  elements.llmModel.value = preset.model;
+  elements.llmApiStyle.value = preset.apiStyle;
+}
+
 async function generateAiAdvice(resumeText, jobText, analysis) {
+  const userLlmConfig = collectUserLlmConfig();
+
   return fetchJsonWithTimeout(
     `${state.apiBaseUrl}/api/ai-suggestions`,
     {
@@ -219,6 +309,7 @@ async function generateAiAdvice(resumeText, jobText, analysis) {
         resume: resumeText,
         job: jobText,
         analysis,
+        llm_config: userLlmConfig,
       }),
     },
     45000,
@@ -468,7 +559,7 @@ function renderResult(result) {
   elements.matchedWeight.textContent = result.score_details.matched_weight;
   elements.totalWeight.textContent = result.score_details.total_job_weight;
   elements.copyJsonButton.disabled = false;
-  elements.aiAdviceButton.disabled = !(state.apiAvailable && state.llmConfigured);
+  updateAiAdviceAvailability();
 
   renderKeywordList(elements.matchedList, result.matched_keywords, "matched");
   renderKeywordList(elements.missingList, result.missing_keywords, "missing");
@@ -476,9 +567,9 @@ function renderResult(result) {
   renderPriorityGaps(result.priority_gaps);
   renderSuggestions(result.suggestion_items);
   renderAiAdvicePlaceholder(
-    state.apiAvailable && state.llmConfigured
+    canGenerateAiAdvice()
       ? "基础分析已完成，可以生成 AI 建议"
-      : "AI 建议需要后端 API 和 LLM_API_KEY",
+      : "AI 建议需要后端 API，并配置服务器 Key 或填写自己的 API Key",
   );
 }
 
@@ -531,11 +622,11 @@ async function detectBackend() {
     state.llmConfigured = Boolean(health.llm_configured);
     elements.runtimeStatus.textContent = state.apiAvailable ? "API mode" : "Browser mode";
     if (state.lastResult) {
-      elements.aiAdviceButton.disabled = !(state.apiAvailable && state.llmConfigured);
+      updateAiAdviceAvailability();
       renderAiAdvicePlaceholder(
-        state.llmConfigured
+        canGenerateAiAdvice()
           ? "基础分析已完成，可以生成 AI 建议"
-          : "后端在线，但需要配置 LLM_API_KEY",
+          : "后端在线，可填写自己的 API Key 启用 AI 建议",
       );
     }
   } catch (error) {
@@ -595,8 +686,8 @@ function bindEvents() {
       return;
     }
 
-    if (!state.llmConfigured) {
-      renderAiAdvicePlaceholder("请先在后端配置 LLM_API_KEY，再生成 AI 建议");
+    if (!state.llmConfigured && !hasCompleteUserLlmConfig()) {
+      renderAiAdvicePlaceholder("请先填写自己的 API Key 和模型名，或在后端配置 LLM_API_KEY");
       return;
     }
 
@@ -618,14 +709,32 @@ function bindEvents() {
       elements.runNote.textContent = "AI 建议生成失败";
       console.error(error);
     } finally {
-      elements.aiAdviceButton.disabled = !(state.apiAvailable && state.llmConfigured);
+      updateAiAdviceAvailability();
     }
+  });
+
+  elements.llmProvider.addEventListener("change", () => {
+    applyProviderPreset(elements.llmProvider.value);
+    updateAiAdviceAvailability();
+  });
+
+  [elements.llmApiKey, elements.llmBaseUrl, elements.llmModel, elements.llmApiStyle].forEach((input) => {
+    input.addEventListener("input", () => {
+      updateAiAdviceAvailability();
+      if (state.lastResult && canGenerateAiAdvice()) {
+        renderAiAdvicePlaceholder("基础分析已完成，可以生成 AI 建议");
+      }
+    });
+    input.addEventListener("change", () => {
+      updateAiAdviceAvailability();
+    });
   });
 }
 
 renderEmptyResult();
 elements.analyzeButton.disabled = true;
 elements.loadSampleButton.disabled = true;
+applyProviderPreset(elements.llmProvider.value);
 bindEvents();
 detectBackend();
 loadKeywords();

@@ -166,9 +166,41 @@
               <div class="ai-advice-heading">
                 <div>
                   <h3 id="ai-advice-title">AI 建议层</h3>
-                  <p>保留规则分数，用 LLM 补充岗位重点、证据强度和改写示例。</p>
+                  <p>保留规则分数，用 LLM 补充岗位重点、证据强度和改写示例。API Key 仅用于本次请求。</p>
                 </div>
                 <button class="button secondary" id="ai-advice-button" type="button" disabled>生成 AI 建议</button>
+              </div>
+              <div class="ai-settings" aria-label="自带 API Key 设置">
+                <label class="field compact-field">
+                  <span>Provider</span>
+                  <select id="llm-provider">
+                    <option value="deepseek">DeepSeek</option>
+                    <option value="dashscope">DashScope</option>
+                    <option value="moonshot">Moonshot / Kimi</option>
+                    <option value="siliconflow">SiliconFlow</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                </label>
+                <label class="field compact-field">
+                  <span>Base URL</span>
+                  <input id="llm-base-url" type="url" autocomplete="off" spellcheck="false">
+                </label>
+                <label class="field compact-field">
+                  <span>Model</span>
+                  <input id="llm-model" type="text" autocomplete="off" spellcheck="false">
+                </label>
+                <label class="field compact-field">
+                  <span>API Key</span>
+                  <input id="llm-api-key" type="password" autocomplete="off" spellcheck="false" placeholder="仅本次请求使用">
+                </label>
+                <label class="field compact-field">
+                  <span>API Style</span>
+                  <select id="llm-api-style">
+                    <option value="chat_completions">Chat Completions</option>
+                    <option value="responses">Responses</option>
+                  </select>
+                </label>
               </div>
               <p class="ai-advice-status" id="ai-advice-status">完成基础分析后可生成</p>
               <div class="ai-advice-content" id="ai-advice-content"></div>
@@ -178,6 +210,6 @@
       </section>
     </main>
 
-    <script src="assets/app.js?v=4"></script>
+    <script src="assets/app.js?v=5"></script>
   </body>
 </html>

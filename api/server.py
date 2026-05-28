@@ -29,8 +29,19 @@ class AnalyzeRequest(BaseModel):
     job: str = Field(..., min_length=1)
 
 
+class LLMRequestConfig(BaseModel):
+    provider: str | None = Field(default=None, max_length=64)
+    api_key: str | None = Field(default=None, max_length=4096)
+    model: str | None = Field(default=None, max_length=128)
+    api_style: str | None = Field(default=None, max_length=32)
+    base_url: str | None = Field(default=None, max_length=512)
+    max_output_tokens: int | None = Field(default=None, ge=300, le=6000)
+    temperature: float | None = Field(default=None, ge=0, le=1)
+
+
 class AISuggestionsRequest(AnalyzeRequest):
     analysis: dict[str, Any] | None = None
+    llm_config: LLMRequestConfig | None = None
 
 
 class UTF8JSONResponse(JSONResponse):
@@ -100,10 +111,11 @@ def analyze_resume_job(payload: AnalyzeRequest) -> dict[str, Any]:
 @app.post("/api/ai-suggestions")
 def ai_suggestions(payload: AISuggestionsRequest) -> dict[str, Any]:
     analysis = payload.analysis or analyze(payload.resume, payload.job, keywords=KEYWORDS)
-    llm_config = get_llm_config()
+    config_override = payload.llm_config.model_dump(exclude_none=True) if payload.llm_config else None
+    llm_config = get_llm_config(config_override)
 
     try:
-        advice = generate_advice(payload.resume, payload.job, analysis)
+        advice = generate_advice(payload.resume, payload.job, analysis, config_override=config_override)
     except LLMConfigurationError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:

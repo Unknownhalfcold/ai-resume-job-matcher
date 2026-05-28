@@ -22,6 +22,7 @@ AI Resume Job Matcher 是一个简历与岗位匹配度分析工具。
 - 标记高优先级缺口
 - 生成结构化简历优化建议
 - 在配置 API Key 后生成 LLM 个性化建议
+- 支持用户自带 API Key 的 BYOK 模式
 - 提供网页交互界面
 - 提供 FastAPI 后端接口
 - 支持文本报告与 JSON 输出
@@ -100,6 +101,8 @@ $env:LLM_API_KEY="你的第三方 API Key"
 $env:LLM_MODEL="deepseek-v4-flash"
 .\.venv\Scripts\python.exe -m uvicorn api.server:app --reload --port 8001
 ```
+
+也可以在网页里的 AI 建议层填写用户自己的 API Key。该 Key 只随本次请求发送到后端，不会写入 GitHub、数据库或浏览器本地存储。
 
 输出 JSON：
 
