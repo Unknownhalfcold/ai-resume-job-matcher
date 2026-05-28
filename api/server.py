@@ -11,8 +11,8 @@ from pydantic import BaseModel, Field
 from api.llm_advisor import (
     LLMConfigurationError,
     generate_advice,
-    get_llm_model,
-    llm_is_configured,
+    get_llm_config,
+    get_llm_metadata,
 )
 from scripts.analyze_match import analyze, load_keywords
 
@@ -68,8 +68,7 @@ def health() -> dict[str, Any]:
         "status": "ok",
         "engine": "rule_based",
         "keyword_count": len(KEYWORDS),
-        "llm_configured": llm_is_configured(),
-        "llm_model": get_llm_model(),
+        **get_llm_metadata(),
     }
 
 
@@ -101,6 +100,7 @@ def analyze_resume_job(payload: AnalyzeRequest) -> dict[str, Any]:
 @app.post("/api/ai-suggestions")
 def ai_suggestions(payload: AISuggestionsRequest) -> dict[str, Any]:
     analysis = payload.analysis or analyze(payload.resume, payload.job, keywords=KEYWORDS)
+    llm_config = get_llm_config()
 
     try:
         advice = generate_advice(payload.resume, payload.job, analysis)
@@ -111,7 +111,9 @@ def ai_suggestions(payload: AISuggestionsRequest) -> dict[str, Any]:
 
     return {
         "engine": "llm_advice",
-        "model": get_llm_model(),
+        "provider": llm_config.provider,
+        "model": llm_config.model,
+        "api_style": llm_config.api_style,
         "rule_score": analysis.get("score"),
         "rule_score_source": "keyword_weight_formula",
         "advice": advice,

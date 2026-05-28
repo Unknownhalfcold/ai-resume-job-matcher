@@ -6,7 +6,7 @@ API MVP 用于跑通前后端通信链路。
 
 当前后端先复用已有的规则匹配逻辑，不接入外部大模型。后续接入 LLM 时，会在这个后端服务中完成 API Key 管理、模型调用和结果整合。
 
-当前版本已经预留并实现可选 LLM 建议接口。未配置 `OPENAI_API_KEY` 时，规则分析接口照常可用，LLM 建议接口会提示未配置。
+当前版本已经预留并实现可选 LLM 建议接口。未配置 `LLM_API_KEY` 或 `OPENAI_API_KEY` 时，规则分析接口照常可用，LLM 建议接口会提示未配置。
 
 ## 架构
 
@@ -101,8 +101,17 @@ POST /api/ai-suggestions
 启用前需要设置：
 
 ```powershell
-$env:OPENAI_API_KEY="你的 OpenAI API Key"
-$env:OPENAI_MODEL="gpt-5.5"
+$env:LLM_API_KEY="你的 API Key"
+$env:LLM_MODEL="gpt-5.5"
+```
+
+如果使用第三方 OpenAI-compatible API，再设置：
+
+```powershell
+$env:LLM_PROVIDER="deepseek"
+$env:LLM_API_STYLE="chat_completions"
+$env:LLM_BASE_URL="https://api.deepseek.com"
+$env:LLM_MODEL="deepseek-v4-flash"
 ```
 
 请求示例：

@@ -28,7 +28,7 @@ AI Resume Job Matcher 是一个简历与岗位匹配度分析工具。
 
 ## 当前版本范围
 
-当前 Web 版本支持直接粘贴简历和岗位 JD 进行分析；Python 版本支持本地文本文件输入。当前版本不依赖数据库。LLM 建议层为可选能力，只有配置后端环境变量 `OPENAI_API_KEY` 后才会调用外部 AI API。
+当前 Web 版本支持直接粘贴简历和岗位 JD 进行分析；Python 版本支持本地文本文件输入。当前版本不依赖数据库。LLM 建议层为可选能力，只有配置后端环境变量 `LLM_API_KEY` 或 `OPENAI_API_KEY` 后才会调用外部 AI API。
 
 已完成：
 
@@ -87,6 +87,17 @@ py -m venv .venv
 ```powershell
 $env:OPENAI_API_KEY="你的 OpenAI API Key"
 $env:OPENAI_MODEL="gpt-5.5"
+.\.venv\Scripts\python.exe -m uvicorn api.server:app --reload --port 8001
+```
+
+使用第三方 OpenAI-compatible API：
+
+```powershell
+$env:LLM_PROVIDER="deepseek"
+$env:LLM_API_STYLE="chat_completions"
+$env:LLM_BASE_URL="https://api.deepseek.com"
+$env:LLM_API_KEY="你的第三方 API Key"
+$env:LLM_MODEL="deepseek-v4-flash"
 .\.venv\Scripts\python.exe -m uvicorn api.server:app --reload --port 8001
 ```
 

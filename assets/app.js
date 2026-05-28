@@ -425,7 +425,8 @@ function renderAiAdvicePlaceholder(message) {
 function renderAiAdvice(response) {
   const advice = response.advice;
   elements.aiAdviceContent.replaceChildren();
-  elements.aiAdviceStatus.textContent = `AI 建议已生成 · ${response.model} · 规则分数保持 ${response.rule_score}/100`;
+  const providerLabel = response.provider ? `${response.provider} / ${response.model}` : response.model;
+  elements.aiAdviceStatus.textContent = `AI 建议已生成 · ${providerLabel} · 规则分数保持 ${response.rule_score}/100`;
 
   const summary = createAdviceCard("整体判断", [advice.summary]);
 
@@ -477,7 +478,7 @@ function renderResult(result) {
   renderAiAdvicePlaceholder(
     state.apiAvailable && state.llmConfigured
       ? "基础分析已完成，可以生成 AI 建议"
-      : "AI 建议需要后端 API 和 OPENAI_API_KEY",
+      : "AI 建议需要后端 API 和 LLM_API_KEY",
   );
 }
 
@@ -534,7 +535,7 @@ async function detectBackend() {
       renderAiAdvicePlaceholder(
         state.llmConfigured
           ? "基础分析已完成，可以生成 AI 建议"
-          : "后端在线，但需要配置 OPENAI_API_KEY",
+          : "后端在线，但需要配置 LLM_API_KEY",
       );
     }
   } catch (error) {
@@ -595,7 +596,7 @@ function bindEvents() {
     }
 
     if (!state.llmConfigured) {
-      renderAiAdvicePlaceholder("请先在后端配置 OPENAI_API_KEY，再生成 AI 建议");
+      renderAiAdvicePlaceholder("请先在后端配置 LLM_API_KEY，再生成 AI 建议");
       return;
     }
 
