@@ -90,6 +90,28 @@ POST /api/analyze
 - `priority_gaps`
 - `suggestion_items`
 
+## 简历文件提取接口
+
+接口：
+
+```text
+POST /api/extract/resume
+```
+
+支持：
+
+- `.docx`
+- 普通可复制文本的 `.pdf`
+
+当前不直接支持扫描版 PDF OCR。扫描版 PDF 需要后续加入 OCR 流程。
+
+返回内容包括：
+
+- `filename`
+- `text`
+- `character_count`
+- `warnings`
+
 ## LLM 建议接口
 
 接口：

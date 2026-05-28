@@ -40,10 +40,15 @@ const elements = {
   resumeInput: document.querySelector("#resume-input"),
   jobInput: document.querySelector("#job-input"),
   analyzeButton: document.querySelector("#analyze-button"),
+  startAnalysisButton: document.querySelector("#start-analysis"),
+  editInputsButton: document.querySelector("#edit-inputs"),
   loadSampleButton: document.querySelector("#load-sample"),
   clearButton: document.querySelector("#clear-all"),
   copyJsonButton: document.querySelector("#copy-json"),
+  resumeFile: document.querySelector("#resume-file"),
+  jdImageFile: document.querySelector("#jd-image-file"),
   aiAdviceButton: document.querySelector("#ai-advice-button"),
+  aiModeInputs: document.querySelectorAll("input[name='ai-mode']"),
   llmProvider: document.querySelector("#llm-provider"),
   llmBaseUrl: document.querySelector("#llm-base-url"),
   llmModel: document.querySelector("#llm-model"),
@@ -64,6 +69,12 @@ const elements = {
   aiAdviceStatus: document.querySelector("#ai-advice-status"),
   aiAdviceContent: document.querySelector("#ai-advice-content"),
   runtimeStatus: document.querySelector("#runtime-status"),
+  loadingPanel: document.querySelector("#loading"),
+  progressBar: document.querySelector("#progress-bar"),
+  progressValue: document.querySelector("#progress-value"),
+  progressStep: document.querySelector("#progress-step"),
+  loadingMessage: document.querySelector("#loading-message"),
+  resultPanel: document.querySelector("#result"),
 };
 
 const LLM_PROVIDER_PRESETS = {
@@ -118,6 +129,34 @@ function getApiBaseUrlCandidate() {
   }
 
   return "";
+}
+
+function getAiMode() {
+  const checked = [...elements.aiModeInputs].find((input) => input.checked);
+  return checked ? checked.value : "default";
+}
+
+function scrollToSection(selector) {
+  document.querySelector(selector)?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function showLoading(message = "准备分析任务") {
+  elements.loadingPanel.hidden = false;
+  elements.resultPanel.hidden = true;
+  updateProgress(8, "准备", message);
+  scrollToSection("#loading");
+}
+
+function hideLoading() {
+  elements.loadingPanel.hidden = true;
+}
+
+function updateProgress(value, step, message) {
+  const nextValue = Math.max(0, Math.min(100, value));
+  elements.progressBar.style.width = `${nextValue}%`;
+  elements.progressValue.textContent = `${nextValue}%`;
+  elements.progressStep.textContent = step;
+  elements.loadingMessage.textContent = message;
 }
 
 async function fetchJsonWithTimeout(url, options = {}, timeoutMs = BACKEND_TIMEOUT_MS) {
@@ -251,6 +290,41 @@ async function analyzeViaApi(resumeText, jobText) {
   );
 }
 
+async function extractResumeFile(file) {
+  if (!state.apiAvailable) {
+    throw new Error("请先启动后端 API，再上传 Word/PDF 简历。");
+  }
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  return fetchJsonWithTimeout(
+    `${state.apiBaseUrl}/api/extract/resume`,
+    {
+      method: "POST",
+      body: formData,
+    },
+    30000,
+  );
+}
+
+async function extractTextFromJdImage(file) {
+  if (!window.Tesseract) {
+    throw new Error("OCR 组件加载失败，请检查网络后重试，或直接粘贴 JD 文本。");
+  }
+
+  const result = await Tesseract.recognize(file, "chi_sim+eng", {
+    logger: (message) => {
+      if (message.status === "recognizing text") {
+        const value = Math.round(10 + message.progress * 80);
+        updateProgress(value, "识别 JD 截图", "正在从截图中提取文字");
+      }
+    },
+  });
+
+  return result.data.text.trim();
+}
+
 function hasUserLlmKey() {
   return Boolean(elements.llmApiKey.value.trim());
 }
@@ -260,10 +334,20 @@ function hasCompleteUserLlmConfig() {
 }
 
 function canGenerateAiAdvice() {
-  return state.apiAvailable && (state.llmConfigured || hasCompleteUserLlmConfig());
+  if (!state.apiAvailable) {
+    return false;
+  }
+  if (getAiMode() === "byok") {
+    return hasCompleteUserLlmConfig();
+  }
+  return state.llmConfigured;
 }
 
 function collectUserLlmConfig() {
+  if (getAiMode() !== "byok") {
+    return null;
+  }
+
   const apiKey = elements.llmApiKey.value.trim();
 
   if (!apiKey) {
@@ -286,6 +370,21 @@ function updateAiAdviceAvailability() {
   }
 
   elements.aiAdviceButton.disabled = !canGenerateAiAdvice();
+}
+
+function syncAiModeUi() {
+  const byokMode = getAiMode() === "byok";
+  document.querySelector(".ai-settings").hidden = !byokMode;
+  updateAiAdviceAvailability();
+  if (state.lastResult) {
+    renderAiAdvicePlaceholder(
+      canGenerateAiAdvice()
+        ? "基础分析已完成，可以生成 AI 建议"
+        : byokMode
+          ? "请填写自己的 API Key 和模型名"
+          : "默认 LLM 暂未配置，可切换到自带 API Key",
+    );
+  }
 }
 
 function applyProviderPreset(providerName) {
@@ -549,6 +648,14 @@ function renderAiAdvice(response) {
   elements.aiAdviceContent.append(summary, focus, evidence, actions, rewrites);
 }
 
+function renderResultPage(result) {
+  renderResult(result);
+  hideLoading();
+  elements.resultPanel.hidden = false;
+  updateProgress(100, "完成", "分析完成");
+  scrollToSection("#result");
+}
+
 function renderResult(result) {
   state.lastResult = result;
 
@@ -569,7 +676,9 @@ function renderResult(result) {
   renderAiAdvicePlaceholder(
     canGenerateAiAdvice()
       ? "基础分析已完成，可以生成 AI 建议"
-      : "AI 建议需要后端 API，并配置服务器 Key 或填写自己的 API Key",
+      : getAiMode() === "byok"
+        ? "请填写自己的 API Key 和模型名"
+        : "默认 LLM 暂未配置，可切换到自带 API Key",
   );
 }
 
@@ -626,7 +735,9 @@ async function detectBackend() {
       renderAiAdvicePlaceholder(
         canGenerateAiAdvice()
           ? "基础分析已完成，可以生成 AI 建议"
-          : "后端在线，可填写自己的 API Key 启用 AI 建议",
+          : getAiMode() === "byok"
+            ? "后端在线，请填写自己的 API Key 启用 AI 建议"
+            : "默认 LLM 暂未配置，可切换到自带 API Key",
       );
     }
   } catch (error) {
@@ -638,6 +749,61 @@ async function detectBackend() {
 }
 
 function bindEvents() {
+  elements.startAnalysisButton.addEventListener("click", () => {
+    scrollToSection("#analyze");
+  });
+
+  elements.editInputsButton.addEventListener("click", () => {
+    scrollToSection("#analyze");
+  });
+
+  elements.resumeFile.addEventListener("change", async () => {
+    const file = elements.resumeFile.files?.[0];
+    if (!file) return;
+
+    showLoading("正在读取简历文件");
+    updateProgress(18, "上传简历", "正在上传 Word/PDF 并提取文本");
+
+    try {
+      const result = await extractResumeFile(file);
+      elements.resumeInput.value = result.text;
+      updateProgress(100, "简历已提取", `${result.filename || "文件"}：${result.character_count} 字符`);
+      elements.runNote.textContent = result.warnings?.length ? result.warnings.join("；") : "简历文本已提取";
+    } catch (error) {
+      elements.runNote.textContent = error.message;
+      updateProgress(100, "提取失败", error.message);
+    } finally {
+      window.setTimeout(hideLoading, 700);
+      elements.resumeFile.value = "";
+      scrollToSection("#analyze");
+    }
+  });
+
+  elements.jdImageFile.addEventListener("change", async () => {
+    const file = elements.jdImageFile.files?.[0];
+    if (!file) return;
+
+    showLoading("正在识别 JD 截图");
+    updateProgress(10, "加载 OCR", "正在准备浏览器端 OCR");
+
+    try {
+      const text = await extractTextFromJdImage(file);
+      if (!text) {
+        throw new Error("截图中没有识别到文字，请换一张更清晰的截图。");
+      }
+      elements.jobInput.value = text;
+      updateProgress(100, "JD 已识别", `已提取 ${text.length} 个字符`);
+      elements.runNote.textContent = "JD 截图文字已识别";
+    } catch (error) {
+      elements.runNote.textContent = error.message;
+      updateProgress(100, "OCR 失败", error.message);
+    } finally {
+      window.setTimeout(hideLoading, 900);
+      elements.jdImageFile.value = "";
+      scrollToSection("#analyze");
+    }
+  });
+
   elements.analyzeButton.addEventListener("click", async () => {
     const resumeText = elements.resumeInput.value.trim();
     const jobText = elements.jobInput.value.trim();
@@ -647,14 +813,29 @@ function bindEvents() {
       return;
     }
 
-    renderResult(await runAnalysis(resumeText, jobText));
-    elements.runNote.textContent = `关键词库：${state.keywords.length} 项`;
+    showLoading("正在计算关键词匹配度");
+    try {
+      updateProgress(24, "读取输入", "正在准备简历和岗位 JD");
+      await new Promise((resolve) => window.setTimeout(resolve, 160));
+      updateProgress(48, "规则分析", "正在识别岗位关键词和简历证据");
+      const result = await runAnalysis(resumeText, jobText);
+      updateProgress(78, "生成结果", "正在整理分数、缺口和建议");
+      await new Promise((resolve) => window.setTimeout(resolve, 220));
+      renderResultPage(result);
+      elements.runNote.textContent = `关键词库：${state.keywords.length} 项`;
+    } catch (error) {
+      updateProgress(100, "分析失败", error.message);
+      elements.runNote.textContent = error.message;
+      window.setTimeout(hideLoading, 900);
+    }
   });
 
   elements.loadSampleButton.addEventListener("click", async () => {
     elements.resumeInput.value = SAMPLE_RESUME;
     elements.jobInput.value = SAMPLE_JOB;
-    renderResult(await runAnalysis(SAMPLE_RESUME, SAMPLE_JOB));
+    showLoading("正在载入示例并分析");
+    const result = await runAnalysis(SAMPLE_RESUME, SAMPLE_JOB);
+    renderResultPage(result);
     elements.runNote.textContent = `关键词库：${state.keywords.length} 项`;
   });
 
@@ -663,6 +844,7 @@ function bindEvents() {
     elements.jobInput.value = "";
     state.lastResult = null;
     renderEmptyResult();
+    elements.resultPanel.hidden = true;
     elements.runNote.textContent = `关键词库：${state.keywords.length} 项`;
   });
 
@@ -698,11 +880,16 @@ function bindEvents() {
 
     elements.aiAdviceButton.disabled = true;
     elements.aiAdviceStatus.textContent = "AI 建议生成中";
+    updateProgress(20, "AI 分析", "正在调用 LLM 建议层");
+    elements.loadingPanel.hidden = false;
 
     try {
+      updateProgress(52, "证据判断", "正在生成岗位重点和证据分析");
       const response = await generateAiAdvice(resumeText, jobText, state.lastResult);
+      updateProgress(88, "整理建议", "正在整理 STAR 改写示例");
       state.lastResult.ai_advice = response;
       renderAiAdvice(response);
+      updateProgress(100, "AI 建议完成", "AI 建议层已生成");
       elements.runNote.textContent = "AI 建议已生成";
     } catch (error) {
       renderAiAdvicePlaceholder(`AI 建议生成失败：${error.message}`);
@@ -710,7 +897,12 @@ function bindEvents() {
       console.error(error);
     } finally {
       updateAiAdviceAvailability();
+      window.setTimeout(hideLoading, 800);
     }
+  });
+
+  elements.aiModeInputs.forEach((input) => {
+    input.addEventListener("change", syncAiModeUi);
   });
 
   elements.llmProvider.addEventListener("change", () => {
@@ -732,9 +924,12 @@ function bindEvents() {
 }
 
 renderEmptyResult();
+elements.loadingPanel.hidden = true;
+elements.resultPanel.hidden = true;
 elements.analyzeButton.disabled = true;
 elements.loadSampleButton.disabled = true;
 applyProviderPreset(elements.llmProvider.value);
 bindEvents();
+syncAiModeUi();
 detectBackend();
 loadKeywords();

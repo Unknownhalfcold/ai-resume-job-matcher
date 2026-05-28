@@ -1,3 +1,6 @@
 fastapi
 openai
+PyMuPDF
+python-docx
+python-multipart
 uvicorn[standard]

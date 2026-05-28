@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>AI Resume Job Matcher</title>
-    <link rel="stylesheet" href="assets/styles.css?v=2">
+    <link rel="stylesheet" href="assets/styles.css?v=6">
   </head>
   <body>
     <header class="topbar">
@@ -14,7 +14,7 @@
       </a>
       <nav class="nav-links" aria-label="页面导航">
         <a href="#start">Start</a>
-        <a href="#app">Analyzer</a>
+        <a href="#analyze">Analyzer</a>
         <a href="#result">Result</a>
         <a href="docs/scoring.html">Scoring</a>
         <a href="https://github.com/Unknownhalfcold/ai-resume-job-matcher">GitHub</a>
@@ -28,8 +28,14 @@
           <h1 id="hero-title">让简历更贴近目标岗位</h1>
           <p class="hero-subtitle">用可解释的匹配度、能力缺口和优化动作，把一次投递前的判断变得更清晰。</p>
           <div class="hero-actions">
-            <a class="button primary" href="#app">开始分析</a>
+            <button class="button primary" id="start-analysis" type="button">开始分析</button>
             <a class="button secondary" href="docs/scoring.html">查看评分逻辑</a>
+          </div>
+          <div class="feature-row" aria-label="当前能力">
+            <span>Word / PDF 简历上传</span>
+            <span>JD 截图 OCR</span>
+            <span>规则分数稳定</span>
+            <span>默认 AI 或自带 Key</span>
           </div>
         </div>
 
@@ -73,14 +79,14 @@
         </div>
       </section>
 
-      <section class="workspace" id="app" aria-labelledby="page-title">
+      <section class="workspace app-page" id="analyze" aria-labelledby="page-title">
         <div class="workspace-heading">
           <div>
             <p class="eyebrow">Analyzer</p>
             <h2 id="page-title">简历与岗位匹配分析</h2>
           </div>
           <div class="status-strip" aria-label="当前版本状态">
-            <span>v0.1</span>
+            <span>v0.4</span>
             <span id="runtime-status">Browser mode</span>
           </div>
         </div>
@@ -93,6 +99,19 @@
                 <button class="button secondary" id="load-sample" type="button">载入示例</button>
                 <button class="button ghost" id="clear-all" type="button">清空</button>
               </div>
+            </div>
+
+            <div class="upload-grid" aria-label="上传入口">
+              <label class="upload-tile">
+                <span>上传简历</span>
+                <small>支持 .docx / 普通 .pdf</small>
+                <input id="resume-file" type="file" accept=".docx,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf">
+              </label>
+              <label class="upload-tile">
+                <span>上传 JD 截图</span>
+                <small>支持 .png / .jpg，浏览器端 OCR</small>
+                <input id="jd-image-file" type="file" accept="image/png,image/jpeg,image/jpg">
+              </label>
             </div>
 
             <div class="text-grid">
@@ -112,63 +131,92 @@
             </div>
           </section>
 
-          <section class="result-panel" id="result" aria-labelledby="result-title">
+          <section class="loading-panel" id="loading" aria-labelledby="loading-title">
+            <p class="eyebrow">Analysis</p>
+            <h2 id="loading-title">正在分析简历与岗位</h2>
+            <p id="loading-message">准备分析任务</p>
+            <div class="progress-track" aria-label="分析进度">
+              <span id="progress-bar"></span>
+            </div>
+            <p class="progress-meta"><strong id="progress-value">0%</strong><span id="progress-step">等待开始</span></p>
+          </section>
+
+          <section class="result-panel app-page" id="result" aria-labelledby="result-title">
             <div class="panel-heading">
               <h2 id="result-title">结果</h2>
-              <button class="button secondary" id="copy-json" type="button" disabled>复制 JSON</button>
-            </div>
-
-            <div class="score-board" aria-live="polite">
-              <div class="score-ring" id="score-ring" style="--score: 0">
-                <div>
-                  <strong id="score-value">--</strong>
-                  <span>/100</span>
-                </div>
-              </div>
-              <div class="score-meta">
-                <p class="score-label" id="score-label">等待分析</p>
-                <p id="score-detail">输入简历和岗位 JD 后生成结果</p>
-                <div class="metric-row">
-                  <span><strong id="matched-weight">0</strong> 已匹配权重</span>
-                  <span><strong id="total-weight">0</strong> 岗位总权重</span>
-                </div>
+              <div class="actions">
+                <button class="button secondary" id="edit-inputs" type="button">返回修改</button>
+                <button class="button secondary" id="copy-json" type="button" disabled>复制 JSON</button>
               </div>
             </div>
 
-            <div class="result-grid">
-              <section class="result-block" aria-labelledby="matched-title">
-                <h3 id="matched-title">已匹配关键词</h3>
-                <div class="pill-list" id="matched-list"></div>
-              </section>
+            <div class="result-layout">
+              <div class="result-left">
+                <div class="score-board" aria-live="polite">
+                  <div class="score-ring" id="score-ring" style="--score: 0">
+                    <div>
+                      <strong id="score-value">--</strong>
+                      <span>/100</span>
+                    </div>
+                  </div>
+                  <div class="score-meta">
+                    <p class="score-label" id="score-label">等待分析</p>
+                    <p id="score-detail">输入简历和岗位 JD 后生成结果</p>
+                    <div class="metric-row">
+                      <span><strong id="matched-weight">0</strong> 已匹配权重</span>
+                      <span><strong id="total-weight">0</strong> 岗位总权重</span>
+                    </div>
+                  </div>
+                </div>
 
-              <section class="result-block" aria-labelledby="missing-title">
-                <h3 id="missing-title">缺失关键词</h3>
-                <div class="pill-list" id="missing-list"></div>
-              </section>
+                <section class="result-block capability-breakdown" aria-labelledby="capability-title">
+                  <h3 id="capability-title">能力维度</h3>
+                  <div class="category-grid" id="category-summary"></div>
+                </section>
+
+                <section class="result-block suggestions" aria-labelledby="suggestion-title">
+                  <h3 id="suggestion-title">优化建议</h3>
+                  <ol id="suggestion-list"></ol>
+                </section>
+              </div>
+
+              <div class="result-right">
+                <section class="result-block priority-gaps" aria-labelledby="priority-title">
+                  <h3 id="priority-title">Gap Evidence</h3>
+                  <div class="priority-list" id="priority-list"></div>
+                </section>
+
+                <div class="result-grid">
+                  <section class="result-block" aria-labelledby="matched-title">
+                    <h3 id="matched-title">已匹配关键词</h3>
+                    <div class="pill-list" id="matched-list"></div>
+                  </section>
+
+                  <section class="result-block" aria-labelledby="missing-title">
+                    <h3 id="missing-title">缺失关键词</h3>
+                    <div class="pill-list" id="missing-list"></div>
+                  </section>
+                </div>
+              </div>
             </div>
-
-            <section class="result-block capability-breakdown" aria-labelledby="capability-title">
-              <h3 id="capability-title">能力维度</h3>
-              <div class="category-grid" id="category-summary"></div>
-            </section>
-
-            <section class="result-block priority-gaps" aria-labelledby="priority-title">
-              <h3 id="priority-title">优先缺口</h3>
-              <div class="priority-list" id="priority-list"></div>
-            </section>
-
-            <section class="result-block suggestions" aria-labelledby="suggestion-title">
-              <h3 id="suggestion-title">优化建议</h3>
-              <ol id="suggestion-list"></ol>
-            </section>
 
             <section class="result-block ai-advice" aria-labelledby="ai-advice-title">
               <div class="ai-advice-heading">
                 <div>
                   <h3 id="ai-advice-title">AI 建议层</h3>
-                  <p>保留规则分数，用 LLM 补充岗位重点、证据强度和改写示例。API Key 仅用于本次请求。</p>
+                  <p>默认使用站点后端配置；也可以切换到用户自己的 API Key。</p>
                 </div>
                 <button class="button secondary" id="ai-advice-button" type="button" disabled>生成 AI 建议</button>
+              </div>
+              <div class="mode-switch" aria-label="AI 模式">
+                <label>
+                  <input type="radio" name="ai-mode" value="default" checked>
+                  <span>使用站点默认 LLM</span>
+                </label>
+                <label>
+                  <input type="radio" name="ai-mode" value="byok">
+                  <span>使用我的 API Key</span>
+                </label>
               </div>
               <div class="ai-settings" aria-label="自带 API Key 设置">
                 <label class="field compact-field">
@@ -210,6 +258,7 @@
       </section>
     </main>
 
-    <script src="assets/app.js?v=5"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script src="assets/app.js?v=6"></script>
   </body>
 </html>

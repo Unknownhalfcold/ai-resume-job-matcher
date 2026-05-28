@@ -63,6 +63,8 @@ a {
 .nav-links,
 .status-strip,
 .actions,
+.feature-row,
+.mode-switch,
 .runbar,
 .metric-row {
   display: flex;
@@ -115,6 +117,7 @@ main {
   max-width: 720px;
   margin: 0 auto;
   text-align: center;
+  animation: rise-in 700ms ease both;
 }
 
 .hero-subtitle {
@@ -137,6 +140,24 @@ main {
   width: min(820px, 100%);
   margin: 0 auto;
   min-width: 0;
+  animation: rise-in 800ms ease 120ms both;
+}
+
+.feature-row {
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 24px;
+}
+
+.feature-row span {
+  padding: 8px 11px;
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+  font-weight: 650;
 }
 
 .preview-shell {
@@ -356,6 +377,7 @@ h3 {
 }
 
 .input-panel,
+.loading-panel,
 .result-panel {
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: var(--radius);
@@ -365,10 +387,18 @@ h3 {
 }
 
 .input-panel {
+  grid-column: 1 / -1;
   padding: 22px;
 }
 
+.loading-panel {
+  grid-column: 1 / -1;
+  min-height: 360px;
+  padding: 34px;
+}
+
 .result-panel {
+  grid-column: 1 / -1;
   padding: 22px;
 }
 
@@ -433,6 +463,47 @@ h3 {
   gap: 14px;
 }
 
+.upload-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.upload-tile {
+  display: grid;
+  gap: 6px;
+  min-height: 96px;
+  padding: 16px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  background: #fbfbfd;
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.upload-tile:hover {
+  border-color: rgba(0, 113, 227, 0.55);
+  background: #ffffff;
+  transform: translateY(-1px);
+}
+
+.upload-tile span {
+  font-weight: 750;
+}
+
+.upload-tile small {
+  color: var(--muted);
+}
+
+.upload-tile input {
+  min-height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+}
+
 .field {
   display: grid;
   gap: 9px;
@@ -490,6 +561,35 @@ select:focus {
   margin: 0;
   color: var(--muted);
   font-size: 13px;
+}
+
+.progress-track {
+  height: 10px;
+  overflow: hidden;
+  margin-top: 26px;
+  border-radius: 999px;
+  background: #e6e6eb;
+}
+
+.progress-track span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--blue);
+  transition: width 260ms ease;
+}
+
+.progress-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  color: var(--muted);
+}
+
+.progress-meta strong {
+  color: var(--text);
 }
 
 .score-board {
@@ -573,6 +673,19 @@ select:focus {
   grid-template-columns: 1fr 1fr;
   gap: 14px;
   margin-top: 14px;
+}
+
+.result-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.result-left,
+.result-right {
+  display: grid;
+  gap: 14px;
 }
 
 .result-block {
@@ -686,6 +799,35 @@ select:focus {
   border: 1px solid var(--line-soft);
   border-radius: var(--radius);
   background: #fbfbfd;
+}
+
+.ai-settings[hidden] {
+  display: none;
+}
+
+.mode-switch {
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.mode-switch label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: #ffffff;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.mode-switch input {
+  width: auto;
+  min-height: auto;
 }
 
 .compact-field {
@@ -892,6 +1034,7 @@ select:focus {
   }
 
   .workspace-heading,
+  .result-layout,
   .tool-layout {
     grid-template-columns: 1fr;
   }
@@ -909,6 +1052,7 @@ select:focus {
   }
 
   .text-grid,
+  .upload-grid,
   .result-grid,
   .category-grid,
   .ai-settings {
@@ -963,6 +1107,7 @@ select:focus {
   }
 
   .input-panel,
+  .loading-panel,
   .result-panel,
   .doc-article {
     padding: 16px;
@@ -1001,5 +1146,16 @@ select:focus {
   .doc-table div {
     grid-template-columns: 1fr;
     gap: 4px;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }

@@ -45,7 +45,7 @@ py -X utf8 scripts/analyze_match.py
 
 ## 阶段 4：Web 界面
 
-状态：已完成第一版
+状态：已完成第二版
 
 已完成：
 
@@ -54,11 +54,17 @@ py -X utf8 scripts/analyze_match.py
 - 复用当前 MVP 的评分逻辑
 - 增加开始页产品入口
 - 增加能力维度和优先级结果展示
+- 增加三段式页面流程：开始、分析、结果
+- 增加加载进度展示
+- 增加 DOCX/PDF 简历上传
+- 增加 JD 截图 OCR 输入
+- 结果页采用分数和 Gap Evidence 左右分栏
 
 计划内容：
 
 - 优化移动端细节
 - 为 GitHub 项目页准备截图或演示 GIF
+- 支持扫描版 PDF OCR
 
 ## 阶段 5：LLM 建议层
 

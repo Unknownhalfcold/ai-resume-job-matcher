@@ -21,6 +21,8 @@ AI Resume Job Matcher 是一个简历与岗位匹配度分析工具。
 - 按能力维度展示覆盖情况
 - 标记高优先级缺口
 - 生成结构化简历优化建议
+- 支持上传 DOCX/PDF 简历并自动提取文本
+- 支持上传 JD 截图并在浏览器端 OCR 识别
 - 在配置 API Key 后生成 LLM 个性化建议
 - 支持用户自带 API Key 的 BYOK 模式
 - 提供网页交互界面
@@ -42,6 +44,9 @@ AI Resume Job Matcher 是一个简历与岗位匹配度分析工具。
 - 开始页产品入口
 - 能力维度和优先级结果展示
 - FastAPI API MVP
+- DOCX/PDF 简历文本提取
+- JD 截图 OCR 输入
+- 三段式页面流程和加载进度
 - 可选 LLM 建议层接口
 - 产品需求、评分逻辑和路线图文档
 
@@ -49,7 +54,7 @@ AI Resume Job Matcher 是一个简历与岗位匹配度分析工具。
 
 - 用户账号
 - 数据库存储
-- PDF/DOCX 简历解析
+- 扫描版 PDF OCR
 - 线上后端部署
 
 ## 快速运行
@@ -149,6 +154,7 @@ py -X utf8 scripts/analyze_match.py --resume local_inputs/my_resume.txt --job lo
 - `assets/app.js`：浏览器端匹配逻辑
 - `data/keywords.json`：共享关键词配置
 - `api/server.py`：FastAPI 后端接口
+- `api/document_parser.py`：DOCX/PDF 文本提取
 - `api/llm_advisor.py`：LLM 建议层
 - `requirements.txt`：后端依赖
 - `scripts/analyze_match.py`：简历岗位匹配分析脚本
@@ -159,6 +165,7 @@ py -X utf8 scripts/analyze_match.py --resume local_inputs/my_resume.txt --job lo
 - `docs/PYTHON_DEMO.md`：Python MVP 运行说明
 - `docs/WEB_MVP.md`：Web MVP 运行说明
 - `docs/API_MVP.md`：API MVP 运行说明
+- `docs/INPUT_EXTRACTION.md`：文档与截图输入说明
 - `docs/LLM_ADVICE.md`：LLM 建议层说明
 - `docs/ROADMAP.md`：产品路线图
 

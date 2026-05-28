@@ -3,11 +3,12 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from api.document_parser import DocumentParseError, extract_resume_text
 from api.llm_advisor import (
     LLMConfigurationError,
     generate_advice,
@@ -71,6 +72,7 @@ app.add_middleware(
 )
 
 KEYWORDS = load_keywords()
+MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 
 
 @app.get("/health")
@@ -105,6 +107,26 @@ def analyze_resume_job(payload: AnalyzeRequest) -> dict[str, Any]:
     return {
         "engine": "rule_based",
         **result,
+    }
+
+
+@app.post("/api/extract/resume")
+async def extract_resume(file: UploadFile = File(...)) -> dict[str, Any]:
+    content = await file.read()
+
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Uploaded file is larger than 8 MB.")
+
+    try:
+        text, warnings = extract_resume_text(file.filename or "", content)
+    except DocumentParseError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {
+        "filename": file.filename,
+        "text": text,
+        "character_count": len(text),
+        "warnings": warnings,
     }
 
 
