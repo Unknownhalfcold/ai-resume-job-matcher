@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>AI Resume Job Matcher</title>
-    <link rel="stylesheet" href="assets/styles.css?v=6">
+    <link rel="stylesheet" href="assets/styles.css?v=7">
   </head>
   <body>
     <header class="topbar">
@@ -93,25 +93,33 @@
 
         <div class="tool-layout">
           <section class="input-panel" aria-labelledby="input-title">
-            <div class="panel-heading">
-              <h2 id="input-title">输入</h2>
-              <div class="actions">
-                <button class="button secondary" id="load-sample" type="button">载入示例</button>
-                <button class="button ghost" id="clear-all" type="button">清空</button>
+            <div class="command-bar">
+              <div class="command-title">
+                <p class="eyebrow">Step 1</p>
+                <h2 id="input-title">准备简历与目标 JD</h2>
+                <p class="run-note" id="run-note">关键词库加载中</p>
               </div>
-            </div>
 
-            <div class="upload-grid" aria-label="上传入口">
-              <label class="upload-tile">
-                <span>上传简历</span>
-                <small>支持 .docx / 普通 .pdf</small>
-                <input id="resume-file" type="file" accept=".docx,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf">
-              </label>
-              <label class="upload-tile">
-                <span>上传 JD 截图</span>
-                <small>支持 .png / .jpg，浏览器端 OCR</small>
-                <input id="jd-image-file" type="file" accept="image/png,image/jpeg,image/jpg">
-              </label>
+              <div class="command-tools" aria-label="输入工具栏">
+                <div class="tool-group upload-actions" aria-label="上传入口">
+                  <label class="upload-chip">
+                    <span>上传简历</span>
+                    <small>DOCX / PDF</small>
+                    <input id="resume-file" type="file" accept=".docx,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf">
+                  </label>
+                  <label class="upload-chip">
+                    <span>JD 截图</span>
+                    <small>PNG / JPG</small>
+                    <input id="jd-image-file" type="file" accept="image/png,image/jpeg,image/jpg">
+                  </label>
+                </div>
+
+                <div class="tool-group action-tools" aria-label="分析操作">
+                  <button class="button secondary" id="load-sample" type="button">载入示例</button>
+                  <button class="button ghost" id="clear-all" type="button">清空</button>
+                  <button class="button primary" id="analyze-button" type="button">开始分析</button>
+                </div>
+              </div>
             </div>
 
             <div class="text-grid">
@@ -123,11 +131,6 @@
                 <span>岗位 JD</span>
                 <textarea id="job-input" spellcheck="false" placeholder="粘贴岗位描述"></textarea>
               </label>
-            </div>
-
-            <div class="runbar">
-              <button class="button primary" id="analyze-button" type="button">开始分析</button>
-              <p class="run-note" id="run-note">关键词库加载中</p>
             </div>
           </section>
 
@@ -142,9 +145,13 @@
           </section>
 
           <section class="result-panel app-page" id="result" aria-labelledby="result-title">
-            <div class="panel-heading">
-              <h2 id="result-title">结果</h2>
-              <div class="actions">
+            <div class="command-bar result-command-bar">
+              <div class="command-title">
+                <p class="eyebrow">Step 3</p>
+                <h2 id="result-title">分析结果</h2>
+                <p>分数保持规则化，证据与建议按优先级展开。</p>
+              </div>
+              <div class="tool-group action-tools">
                 <button class="button secondary" id="edit-inputs" type="button">返回修改</button>
                 <button class="button secondary" id="copy-json" type="button" disabled>复制 JSON</button>
               </div>
