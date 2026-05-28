@@ -37,11 +37,17 @@ const SAMPLE_JOB = `岗位名称：AI 产品经理实习生
 - 有用户研究、竞品分析或产品原型设计经验优先`;
 
 const elements = {
+  pages: document.querySelectorAll(".page-view"),
+  pageLinks: document.querySelectorAll("[data-page-link]"),
   resumeInput: document.querySelector("#resume-input"),
   jobInput: document.querySelector("#job-input"),
   analyzeButton: document.querySelector("#analyze-button"),
   startAnalysisButton: document.querySelector("#start-analysis"),
   editInputsButton: document.querySelector("#edit-inputs"),
+  showExampleButton: document.querySelector("#show-example"),
+  closeExampleButton: document.querySelector("#close-example"),
+  useExampleButton: document.querySelector("#use-example"),
+  exampleModal: document.querySelector("#example-modal"),
   loadSampleButton: document.querySelector("#load-sample"),
   clearButton: document.querySelector("#clear-all"),
   copyJsonButton: document.querySelector("#copy-json"),
@@ -69,6 +75,7 @@ const elements = {
   aiAdviceStatus: document.querySelector("#ai-advice-status"),
   aiAdviceContent: document.querySelector("#ai-advice-content"),
   runtimeStatus: document.querySelector("#runtime-status"),
+  analysisStatus: document.querySelector("#analysis-status"),
   loadingPanel: document.querySelector("#loading"),
   progressBar: document.querySelector("#progress-bar"),
   progressValue: document.querySelector("#progress-value"),
@@ -136,15 +143,38 @@ function getAiMode() {
   return checked ? checked.value : "default";
 }
 
-function scrollToSection(selector) {
-  document.querySelector(selector)?.scrollIntoView({ behavior: "smooth", block: "start" });
+function getPageFromHash() {
+  const pageName = window.location.hash.replace("#", "");
+  return ["start", "analyze", "result"].includes(pageName) ? pageName : "start";
+}
+
+function showPage(pageName, { push = true } = {}) {
+  const nextPage = ["start", "analyze", "result"].includes(pageName) ? pageName : "start";
+
+  elements.pages.forEach((page) => {
+    page.hidden = page.dataset.view !== nextPage;
+  });
+
+  document.body.dataset.page = nextPage;
+  elements.pageLinks.forEach((link) => {
+    const active = link.dataset.pageLink === nextPage;
+    link.toggleAttribute("aria-current", active);
+  });
+
+  const nextHash = `#${nextPage}`;
+  if (push && window.location.hash !== nextHash) {
+    window.history.pushState({ page: nextPage }, "", nextHash);
+  } else if (!window.location.hash) {
+    window.history.replaceState({ page: nextPage }, "", nextHash);
+  }
+
+  window.scrollTo({ top: 0, left: 0, behavior: "auto" });
 }
 
 function showLoading(message = "准备分析任务") {
+  showPage("analyze");
   elements.loadingPanel.hidden = false;
-  elements.resultPanel.hidden = true;
   updateProgress(8, "准备", message);
-  scrollToSection("#loading");
 }
 
 function hideLoading() {
@@ -157,6 +187,9 @@ function updateProgress(value, step, message) {
   elements.progressValue.textContent = `${nextValue}%`;
   elements.progressStep.textContent = step;
   elements.loadingMessage.textContent = message;
+  if (elements.analysisStatus) {
+    elements.analysisStatus.textContent = step;
+  }
 }
 
 async function fetchJsonWithTimeout(url, options = {}, timeoutMs = BACKEND_TIMEOUT_MS) {
@@ -651,9 +684,8 @@ function renderAiAdvice(response) {
 function renderResultPage(result) {
   renderResult(result);
   hideLoading();
-  elements.resultPanel.hidden = false;
   updateProgress(100, "完成", "分析完成");
-  scrollToSection("#result");
+  showPage("result");
 }
 
 function renderResult(result) {
@@ -749,12 +781,44 @@ async function detectBackend() {
 }
 
 function bindEvents() {
+  elements.pageLinks.forEach((link) => {
+    link.addEventListener("click", (event) => {
+      const targetPage = link.dataset.pageLink;
+      if (!targetPage) return;
+      event.preventDefault();
+      showPage(targetPage);
+    });
+  });
+
   elements.startAnalysisButton.addEventListener("click", () => {
-    scrollToSection("#analyze");
+    showPage("analyze");
   });
 
   elements.editInputsButton.addEventListener("click", () => {
-    scrollToSection("#analyze");
+    showPage("analyze");
+  });
+
+  elements.showExampleButton.addEventListener("click", () => {
+    elements.exampleModal.hidden = false;
+  });
+
+  elements.closeExampleButton.addEventListener("click", () => {
+    elements.exampleModal.hidden = true;
+  });
+
+  elements.exampleModal.addEventListener("click", (event) => {
+    if (event.target === elements.exampleModal) {
+      elements.exampleModal.hidden = true;
+    }
+  });
+
+  elements.useExampleButton.addEventListener("click", () => {
+    elements.resumeInput.value = SAMPLE_RESUME;
+    elements.jobInput.value = SAMPLE_JOB;
+    elements.exampleModal.hidden = true;
+    hideLoading();
+    showPage("analyze");
+    elements.runNote.textContent = `关键词库：${state.keywords.length} 项；示例已载入`;
   });
 
   elements.resumeFile.addEventListener("change", async () => {
@@ -775,7 +839,7 @@ function bindEvents() {
     } finally {
       window.setTimeout(hideLoading, 700);
       elements.resumeFile.value = "";
-      scrollToSection("#analyze");
+      showPage("analyze");
     }
   });
 
@@ -800,7 +864,7 @@ function bindEvents() {
     } finally {
       window.setTimeout(hideLoading, 900);
       elements.jdImageFile.value = "";
-      scrollToSection("#analyze");
+      showPage("analyze");
     }
   });
 
@@ -816,11 +880,11 @@ function bindEvents() {
     showLoading("正在计算关键词匹配度");
     try {
       updateProgress(24, "读取输入", "正在准备简历和岗位 JD");
-      await new Promise((resolve) => window.setTimeout(resolve, 160));
+      await new Promise((resolve) => window.setTimeout(resolve, 320));
       updateProgress(48, "规则分析", "正在识别岗位关键词和简历证据");
       const result = await runAnalysis(resumeText, jobText);
       updateProgress(78, "生成结果", "正在整理分数、缺口和建议");
-      await new Promise((resolve) => window.setTimeout(resolve, 220));
+      await new Promise((resolve) => window.setTimeout(resolve, 520));
       renderResultPage(result);
       elements.runNote.textContent = `关键词库：${state.keywords.length} 项`;
     } catch (error) {
@@ -830,13 +894,12 @@ function bindEvents() {
     }
   });
 
-  elements.loadSampleButton.addEventListener("click", async () => {
+  elements.loadSampleButton.addEventListener("click", () => {
     elements.resumeInput.value = SAMPLE_RESUME;
     elements.jobInput.value = SAMPLE_JOB;
-    showLoading("正在载入示例并分析");
-    const result = await runAnalysis(SAMPLE_RESUME, SAMPLE_JOB);
-    renderResultPage(result);
-    elements.runNote.textContent = `关键词库：${state.keywords.length} 项`;
+    hideLoading();
+    showPage("analyze");
+    elements.runNote.textContent = `关键词库：${state.keywords.length} 项；示例已载入`;
   });
 
   elements.clearButton.addEventListener("click", () => {
@@ -844,7 +907,7 @@ function bindEvents() {
     elements.jobInput.value = "";
     state.lastResult = null;
     renderEmptyResult();
-    elements.resultPanel.hidden = true;
+    hideLoading();
     elements.runNote.textContent = `关键词库：${state.keywords.length} 项`;
   });
 
@@ -880,16 +943,11 @@ function bindEvents() {
 
     elements.aiAdviceButton.disabled = true;
     elements.aiAdviceStatus.textContent = "AI 建议生成中";
-    updateProgress(20, "AI 分析", "正在调用 LLM 建议层");
-    elements.loadingPanel.hidden = false;
 
     try {
-      updateProgress(52, "证据判断", "正在生成岗位重点和证据分析");
       const response = await generateAiAdvice(resumeText, jobText, state.lastResult);
-      updateProgress(88, "整理建议", "正在整理 STAR 改写示例");
       state.lastResult.ai_advice = response;
       renderAiAdvice(response);
-      updateProgress(100, "AI 建议完成", "AI 建议层已生成");
       elements.runNote.textContent = "AI 建议已生成";
     } catch (error) {
       renderAiAdvicePlaceholder(`AI 建议生成失败：${error.message}`);
@@ -897,7 +955,6 @@ function bindEvents() {
       console.error(error);
     } finally {
       updateAiAdviceAvailability();
-      window.setTimeout(hideLoading, 800);
     }
   });
 
@@ -921,15 +978,23 @@ function bindEvents() {
       updateAiAdviceAvailability();
     });
   });
+
+  window.addEventListener("popstate", () => {
+    showPage(getPageFromHash(), { push: false });
+  });
+
+  window.addEventListener("hashchange", () => {
+    showPage(getPageFromHash(), { push: false });
+  });
 }
 
 renderEmptyResult();
 elements.loadingPanel.hidden = true;
-elements.resultPanel.hidden = true;
 elements.analyzeButton.disabled = true;
 elements.loadSampleButton.disabled = true;
 applyProviderPreset(elements.llmProvider.value);
 bindEvents();
+showPage(getPageFromHash(), { push: false });
 syncAiModeUi();
 detectBackend();
 loadKeywords();

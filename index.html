@@ -4,90 +4,61 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>AI Resume Job Matcher</title>
-    <link rel="stylesheet" href="assets/styles.css?v=7">
+    <link rel="stylesheet" href="assets/styles.css?v=8">
   </head>
   <body>
     <header class="topbar">
-      <a class="brand" href="#start" aria-label="AI Resume Job Matcher">
+      <a class="brand" href="#start" data-page-link="start" aria-label="AI Resume Job Matcher">
         <span class="brand-mark" aria-hidden="true"></span>
         <span>AI Resume Job Matcher</span>
       </a>
       <nav class="nav-links" aria-label="页面导航">
-        <a href="#start">Start</a>
-        <a href="#analyze">Analyzer</a>
-        <a href="#result">Result</a>
+        <a href="#start" data-page-link="start">Start</a>
+        <a href="#analyze" data-page-link="analyze">Analyzer</a>
+        <a href="#result" data-page-link="result">Result</a>
         <a href="docs/scoring.html">Scoring</a>
         <a href="https://github.com/Unknownhalfcold/ai-resume-job-matcher">GitHub</a>
       </nav>
     </header>
 
-    <main>
-      <section class="hero" id="start" aria-labelledby="hero-title">
+    <main class="page-shell">
+      <section class="page-view hero-page" id="start" data-view="start" aria-labelledby="hero-title">
         <div class="hero-copy">
           <p class="eyebrow">Resume Intelligence MVP</p>
           <h1 id="hero-title">让简历更贴近目标岗位</h1>
           <p class="hero-subtitle">用可解释的匹配度、能力缺口和优化动作，把一次投递前的判断变得更清晰。</p>
+
           <div class="hero-actions">
-            <button class="button primary" id="start-analysis" type="button">开始分析</button>
+            <button class="button primary hero-primary" id="start-analysis" type="button">开始分析</button>
+            <button class="button secondary" id="show-example" type="button">查看示例</button>
             <a class="button secondary" href="docs/scoring.html">查看评分逻辑</a>
           </div>
+
           <div class="feature-row" aria-label="当前能力">
             <span>Word / PDF 简历上传</span>
             <span>JD 截图 OCR</span>
             <span>规则分数稳定</span>
             <span>默认 AI 或自带 Key</span>
           </div>
-        </div>
 
-        <div class="hero-visual" aria-label="产品结果预览">
-          <div class="preview-shell">
-            <div class="preview-topline">
-              <span>Target Role</span>
-              <strong>AI 产品经理实习生</strong>
-            </div>
-            <div class="preview-score">
-              <div class="mini-ring" style="--score: 72">
-                <strong>72</strong>
-                <span>/100</span>
-              </div>
-              <div>
-                <h2>中高匹配</h2>
-                <p>主要缺口集中在产品原型和实验分析。</p>
-              </div>
-            </div>
-            <div class="preview-bars">
-              <div>
-                <span>产品能力</span>
-                <meter min="0" max="100" value="68"></meter>
-              </div>
-              <div>
-                <span>数据能力</span>
-                <meter min="0" max="100" value="84"></meter>
-              </div>
-              <div>
-                <span>协作能力</span>
-                <meter min="0" max="100" value="56"></meter>
-              </div>
-            </div>
-            <div class="preview-tags">
-              <span>需求分析</span>
-              <span>SQL</span>
-              <span>用户研究</span>
-              <span data-muted="true">A/B 测试</span>
-            </div>
+          <div class="version-strip" aria-label="版本状态">
+            <span>v0.5</span>
+            <span id="runtime-status">Browser mode</span>
           </div>
         </div>
       </section>
 
-      <section class="workspace app-page" id="analyze" aria-labelledby="page-title">
+      <section class="page-view workspace analysis-page" id="analyze" data-view="analyze" aria-labelledby="page-title" hidden>
+        <button class="page-back" type="button" data-page-link="start" aria-label="返回首页">← 返回首页</button>
+
         <div class="workspace-heading">
           <div>
             <p class="eyebrow">Analyzer</p>
             <h2 id="page-title">简历与岗位匹配分析</h2>
           </div>
-          <div class="status-strip" aria-label="当前版本状态">
-            <span>v0.4</span>
-            <span id="runtime-status">Browser mode</span>
+          <div class="status-strip" aria-label="当前分析状态">
+            <span>Step 2</span>
+            <span id="analysis-status">准备输入</span>
           </div>
         </div>
 
@@ -95,7 +66,7 @@
           <section class="input-panel" aria-labelledby="input-title">
             <div class="command-bar">
               <div class="command-title">
-                <p class="eyebrow">Step 1</p>
+                <p class="eyebrow">Step 2</p>
                 <h2 id="input-title">准备简历与目标 JD</h2>
                 <p class="run-note" id="run-note">关键词库加载中</p>
               </div>
@@ -122,150 +93,184 @@
               </div>
             </div>
 
+            <section class="loading-panel" id="loading" aria-labelledby="loading-title" hidden>
+              <div>
+                <p class="eyebrow">Analysis</p>
+                <h2 id="loading-title">正在分析简历与岗位</h2>
+                <p id="loading-message">准备分析任务</p>
+              </div>
+              <div class="progress-block">
+                <div class="progress-track" aria-label="分析进度">
+                  <span id="progress-bar"></span>
+                </div>
+                <p class="progress-meta"><strong id="progress-value">0%</strong><span id="progress-step">等待开始</span></p>
+              </div>
+            </section>
+
             <div class="text-grid">
               <label class="field">
                 <span>简历文本</span>
-                <textarea id="resume-input" spellcheck="false" placeholder="粘贴简历内容"></textarea>
+                <textarea id="resume-input" spellcheck="false" placeholder="粘贴简历内容，或上传 Word / PDF 后自动提取"></textarea>
               </label>
               <label class="field">
                 <span>岗位 JD</span>
-                <textarea id="job-input" spellcheck="false" placeholder="粘贴岗位描述"></textarea>
+                <textarea id="job-input" spellcheck="false" placeholder="粘贴岗位描述，或上传 JD 截图进行 OCR"></textarea>
               </label>
             </div>
           </section>
-
-          <section class="loading-panel" id="loading" aria-labelledby="loading-title">
-            <p class="eyebrow">Analysis</p>
-            <h2 id="loading-title">正在分析简历与岗位</h2>
-            <p id="loading-message">准备分析任务</p>
-            <div class="progress-track" aria-label="分析进度">
-              <span id="progress-bar"></span>
-            </div>
-            <p class="progress-meta"><strong id="progress-value">0%</strong><span id="progress-step">等待开始</span></p>
-          </section>
-
-          <section class="result-panel app-page" id="result" aria-labelledby="result-title">
-            <div class="command-bar result-command-bar">
-              <div class="command-title">
-                <p class="eyebrow">Step 3</p>
-                <h2 id="result-title">分析结果</h2>
-                <p>分数保持规则化，证据与建议按优先级展开。</p>
-              </div>
-              <div class="tool-group action-tools">
-                <button class="button secondary" id="edit-inputs" type="button">返回修改</button>
-                <button class="button secondary" id="copy-json" type="button" disabled>复制 JSON</button>
-              </div>
-            </div>
-
-            <div class="result-layout">
-              <div class="result-left">
-                <div class="score-board" aria-live="polite">
-                  <div class="score-ring" id="score-ring" style="--score: 0">
-                    <div>
-                      <strong id="score-value">--</strong>
-                      <span>/100</span>
-                    </div>
-                  </div>
-                  <div class="score-meta">
-                    <p class="score-label" id="score-label">等待分析</p>
-                    <p id="score-detail">输入简历和岗位 JD 后生成结果</p>
-                    <div class="metric-row">
-                      <span><strong id="matched-weight">0</strong> 已匹配权重</span>
-                      <span><strong id="total-weight">0</strong> 岗位总权重</span>
-                    </div>
-                  </div>
-                </div>
-
-                <section class="result-block capability-breakdown" aria-labelledby="capability-title">
-                  <h3 id="capability-title">能力维度</h3>
-                  <div class="category-grid" id="category-summary"></div>
-                </section>
-
-                <section class="result-block suggestions" aria-labelledby="suggestion-title">
-                  <h3 id="suggestion-title">优化建议</h3>
-                  <ol id="suggestion-list"></ol>
-                </section>
-              </div>
-
-              <div class="result-right">
-                <section class="result-block priority-gaps" aria-labelledby="priority-title">
-                  <h3 id="priority-title">Gap Evidence</h3>
-                  <div class="priority-list" id="priority-list"></div>
-                </section>
-
-                <div class="result-grid">
-                  <section class="result-block" aria-labelledby="matched-title">
-                    <h3 id="matched-title">已匹配关键词</h3>
-                    <div class="pill-list" id="matched-list"></div>
-                  </section>
-
-                  <section class="result-block" aria-labelledby="missing-title">
-                    <h3 id="missing-title">缺失关键词</h3>
-                    <div class="pill-list" id="missing-list"></div>
-                  </section>
-                </div>
-              </div>
-            </div>
-
-            <section class="result-block ai-advice" aria-labelledby="ai-advice-title">
-              <div class="ai-advice-heading">
-                <div>
-                  <h3 id="ai-advice-title">AI 建议层</h3>
-                  <p>默认使用站点后端配置；也可以切换到用户自己的 API Key。</p>
-                </div>
-                <button class="button secondary" id="ai-advice-button" type="button" disabled>生成 AI 建议</button>
-              </div>
-              <div class="mode-switch" aria-label="AI 模式">
-                <label>
-                  <input type="radio" name="ai-mode" value="default" checked>
-                  <span>使用站点默认 LLM</span>
-                </label>
-                <label>
-                  <input type="radio" name="ai-mode" value="byok">
-                  <span>使用我的 API Key</span>
-                </label>
-              </div>
-              <div class="ai-settings" aria-label="自带 API Key 设置">
-                <label class="field compact-field">
-                  <span>Provider</span>
-                  <select id="llm-provider">
-                    <option value="deepseek">DeepSeek</option>
-                    <option value="dashscope">DashScope</option>
-                    <option value="moonshot">Moonshot / Kimi</option>
-                    <option value="siliconflow">SiliconFlow</option>
-                    <option value="openai">OpenAI</option>
-                    <option value="custom">Custom</option>
-                  </select>
-                </label>
-                <label class="field compact-field">
-                  <span>Base URL</span>
-                  <input id="llm-base-url" type="url" autocomplete="off" spellcheck="false">
-                </label>
-                <label class="field compact-field">
-                  <span>Model</span>
-                  <input id="llm-model" type="text" autocomplete="off" spellcheck="false">
-                </label>
-                <label class="field compact-field">
-                  <span>API Key</span>
-                  <input id="llm-api-key" type="password" autocomplete="off" spellcheck="false" placeholder="仅本次请求使用">
-                </label>
-                <label class="field compact-field">
-                  <span>API Style</span>
-                  <select id="llm-api-style">
-                    <option value="chat_completions">Chat Completions</option>
-                    <option value="responses">Responses</option>
-                  </select>
-                </label>
-              </div>
-              <p class="ai-advice-status" id="ai-advice-status">完成基础分析后可生成</p>
-              <div class="ai-advice-content" id="ai-advice-content"></div>
-            </section>
-          </section>
         </div>
+      </section>
+
+      <section class="page-view workspace result-page" id="result" data-view="result" aria-labelledby="result-title" hidden>
+        <button class="page-back" id="edit-inputs" type="button" aria-label="返回修改">← 返回修改</button>
+
+        <section class="result-panel" aria-labelledby="result-title">
+          <div class="command-bar result-command-bar">
+            <div class="command-title">
+              <p class="eyebrow">Step 3</p>
+              <h2 id="result-title">分析结果</h2>
+              <p>稳定规则分数先给判断，AI 建议作为可选增强层。</p>
+            </div>
+            <div class="tool-group action-tools">
+              <button class="button secondary" id="copy-json" type="button" disabled>复制 JSON</button>
+            </div>
+          </div>
+
+          <div class="result-layout">
+            <div class="result-left">
+              <div class="score-board" aria-live="polite">
+                <div class="score-ring" id="score-ring" style="--score: 0">
+                  <div>
+                    <strong id="score-value">--</strong>
+                    <span>/100</span>
+                  </div>
+                </div>
+                <div class="score-meta">
+                  <p class="score-label" id="score-label">等待分析</p>
+                  <p id="score-detail">输入简历和岗位 JD 后生成结果</p>
+                  <div class="metric-row">
+                    <span><strong id="matched-weight">0</strong> 已匹配权重</span>
+                    <span><strong id="total-weight">0</strong> 岗位总权重</span>
+                  </div>
+                </div>
+              </div>
+
+              <section class="result-block capability-breakdown" aria-labelledby="capability-title">
+                <h3 id="capability-title">能力维度</h3>
+                <div class="category-grid" id="category-summary"></div>
+              </section>
+
+              <section class="result-block suggestions" aria-labelledby="suggestion-title" hidden>
+                <h3 id="suggestion-title">规则建议</h3>
+                <ol id="suggestion-list"></ol>
+              </section>
+            </div>
+
+            <div class="result-right">
+              <section class="result-block priority-gaps" aria-labelledby="priority-title">
+                <h3 id="priority-title">Gap Evidence</h3>
+                <div class="priority-list" id="priority-list"></div>
+              </section>
+
+              <div class="result-grid">
+                <section class="result-block" aria-labelledby="matched-title">
+                  <h3 id="matched-title">已匹配关键词</h3>
+                  <div class="pill-list" id="matched-list"></div>
+                </section>
+
+                <section class="result-block" aria-labelledby="missing-title">
+                  <h3 id="missing-title">缺失关键词</h3>
+                  <div class="pill-list" id="missing-list"></div>
+                </section>
+              </div>
+            </div>
+          </div>
+
+          <section class="result-block ai-advice" aria-labelledby="ai-advice-title">
+            <div class="ai-advice-heading">
+              <div>
+                <h3 id="ai-advice-title">AI 建议层</h3>
+                <p>需要更具体的修改方向时再生成，避免结果页一开始过载。</p>
+              </div>
+              <button class="button secondary" id="ai-advice-button" type="button" disabled>生成 AI 建议</button>
+            </div>
+            <div class="mode-switch" aria-label="AI 模式">
+              <label>
+                <input type="radio" name="ai-mode" value="default" checked>
+                <span>使用站点默认 LLM</span>
+              </label>
+              <label>
+                <input type="radio" name="ai-mode" value="byok">
+                <span>使用我的 API Key</span>
+              </label>
+            </div>
+            <div class="ai-settings" aria-label="自带 API Key 设置">
+              <label class="field compact-field">
+                <span>Provider</span>
+                <select id="llm-provider">
+                  <option value="deepseek">DeepSeek</option>
+                  <option value="dashscope">DashScope</option>
+                  <option value="moonshot">Moonshot / Kimi</option>
+                  <option value="siliconflow">SiliconFlow</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="custom">Custom</option>
+                </select>
+              </label>
+              <label class="field compact-field">
+                <span>Base URL</span>
+                <input id="llm-base-url" type="url" autocomplete="off" spellcheck="false">
+              </label>
+              <label class="field compact-field">
+                <span>Model</span>
+                <input id="llm-model" type="text" autocomplete="off" spellcheck="false">
+              </label>
+              <label class="field compact-field">
+                <span>API Key</span>
+                <input id="llm-api-key" type="password" autocomplete="off" spellcheck="false" placeholder="仅本次请求使用">
+              </label>
+              <label class="field compact-field">
+                <span>API Style</span>
+                <select id="llm-api-style">
+                  <option value="chat_completions">Chat Completions</option>
+                  <option value="responses">Responses</option>
+                </select>
+              </label>
+            </div>
+            <p class="ai-advice-status" id="ai-advice-status">完成基础分析后可生成</p>
+            <div class="ai-advice-content" id="ai-advice-content"></div>
+          </section>
+        </section>
       </section>
     </main>
 
+    <div class="example-modal" id="example-modal" hidden>
+      <div class="example-card" role="dialog" aria-modal="true" aria-labelledby="example-title">
+        <div class="example-heading">
+          <div>
+            <p class="eyebrow">Example</p>
+            <h2 id="example-title">示例输入预览</h2>
+          </div>
+          <button class="button ghost" id="close-example" type="button">关闭</button>
+        </div>
+        <div class="example-grid">
+          <section>
+            <h3>示例简历</h3>
+            <p>- 产品能力：需求分析、用户研究、竞品分析、PRD 撰写</p>
+            <p>- 技术能力：Python、SQL、数据分析</p>
+          </section>
+          <section>
+            <h3>示例 JD</h3>
+            <p>- 参与 AI 产品需求分析和功能设计</p>
+            <p>- 关注大语言模型在招聘、教育等场景中的应用</p>
+          </section>
+        </div>
+        <div class="example-actions">
+          <button class="button primary" id="use-example" type="button">使用示例进入分析</button>
+        </div>
+      </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script src="assets/app.js?v=6"></script>
+    <script src="assets/app.js?v=8"></script>
   </body>
 </html>
