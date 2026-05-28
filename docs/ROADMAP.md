@@ -62,20 +62,21 @@ py -X utf8 scripts/analyze_match.py
 
 ## 阶段 5：LLM 建议层
 
-状态：准备中
+状态：进行中
 
 已完成：
 
 - 搭建 FastAPI 后端 MVP
 - 提供 `/health`、`/api/keywords`、`/api/analyze`
 - 本地前端可自动切换 API 模式
+- 提供可选 `/api/ai-suggestions` 接口
+- 前端支持展示 AI 建议层结果
 
 计划内容：
 
-- 将匹配结果作为结构化输入传给 LLM
-- 生成更贴合岗位的简历优化建议
-- 让 LLM 判断 JD 中的核心要求和简历证据强度
-- 增加 STAR 风格的项目经历改写示例
+- 使用真实简历和 JD 校验 LLM 建议质量
+- 优化提示词和结构化输出 schema
+- 增加更多岗位方向的测试样例
 - 使用后端服务保护 API 凭证
 
 ## 阶段 6：部署与作品包装

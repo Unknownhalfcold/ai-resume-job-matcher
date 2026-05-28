@@ -3,11 +3,17 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from api.llm_advisor import (
+    LLMConfigurationError,
+    generate_advice,
+    get_llm_model,
+    llm_is_configured,
+)
 from scripts.analyze_match import analyze, load_keywords
 
 
@@ -21,6 +27,10 @@ DEFAULT_ALLOWED_ORIGINS = (
 class AnalyzeRequest(BaseModel):
     resume: str = Field(..., min_length=1)
     job: str = Field(..., min_length=1)
+
+
+class AISuggestionsRequest(AnalyzeRequest):
+    analysis: dict[str, Any] | None = None
 
 
 class UTF8JSONResponse(JSONResponse):
@@ -58,6 +68,8 @@ def health() -> dict[str, Any]:
         "status": "ok",
         "engine": "rule_based",
         "keyword_count": len(KEYWORDS),
+        "llm_configured": llm_is_configured(),
+        "llm_model": get_llm_model(),
     }
 
 
@@ -83,4 +95,24 @@ def analyze_resume_job(payload: AnalyzeRequest) -> dict[str, Any]:
     return {
         "engine": "rule_based",
         **result,
+    }
+
+
+@app.post("/api/ai-suggestions")
+def ai_suggestions(payload: AISuggestionsRequest) -> dict[str, Any]:
+    analysis = payload.analysis or analyze(payload.resume, payload.job, keywords=KEYWORDS)
+
+    try:
+        advice = generate_advice(payload.resume, payload.job, analysis)
+    except LLMConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"LLM request failed: {exc}") from exc
+
+    return {
+        "engine": "llm_advice",
+        "model": get_llm_model(),
+        "rule_score": analysis.get("score"),
+        "rule_score_source": "keyword_weight_formula",
+        "advice": advice,
     }

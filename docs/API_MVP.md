@@ -6,6 +6,8 @@ API MVP 用于跑通前后端通信链路。
 
 当前后端先复用已有的规则匹配逻辑，不接入外部大模型。后续接入 LLM 时，会在这个后端服务中完成 API Key 管理、模型调用和结果整合。
 
+当前版本已经预留并实现可选 LLM 建议接口。未配置 `OPENAI_API_KEY` 时，规则分析接口照常可用，LLM 建议接口会提示未配置。
+
 ## 架构
 
 ```text
@@ -16,6 +18,14 @@ FastAPI 后端
 规则匹配逻辑
   ↓
 返回 JSON 分析结果
+
+可选：
+
+规则匹配结果
+  ↓
+LLM 建议层
+  ↓
+返回岗位重点、证据强度、修改动作和改写示例
 ```
 
 ## 安装依赖
@@ -79,6 +89,43 @@ POST /api/analyze
 - `category_summary`
 - `priority_gaps`
 - `suggestion_items`
+
+## LLM 建议接口
+
+接口：
+
+```text
+POST /api/ai-suggestions
+```
+
+启用前需要设置：
+
+```powershell
+$env:OPENAI_API_KEY="你的 OpenAI API Key"
+$env:OPENAI_MODEL="gpt-5.5"
+```
+
+请求示例：
+
+```json
+{
+  "resume": "简历文本",
+  "job": "岗位 JD 文本",
+  "analysis": {
+    "score": 43
+  }
+}
+```
+
+返回内容包括：
+
+- `rule_score`
+- `rule_score_source`
+- `advice.summary`
+- `advice.job_focus`
+- `advice.evidence_review`
+- `advice.top_actions`
+- `advice.rewrite_examples`
 
 ## 前端调用方式
 

@@ -3,6 +3,7 @@ const state = {
   lastResult: null,
   apiBaseUrl: "",
   apiAvailable: false,
+  llmConfigured: false,
 };
 
 const BACKEND_TIMEOUT_MS = 900;
@@ -42,6 +43,7 @@ const elements = {
   loadSampleButton: document.querySelector("#load-sample"),
   clearButton: document.querySelector("#clear-all"),
   copyJsonButton: document.querySelector("#copy-json"),
+  aiAdviceButton: document.querySelector("#ai-advice-button"),
   runNote: document.querySelector("#run-note"),
   scoreRing: document.querySelector("#score-ring"),
   scoreValue: document.querySelector("#score-value"),
@@ -54,6 +56,8 @@ const elements = {
   categorySummary: document.querySelector("#category-summary"),
   priorityList: document.querySelector("#priority-list"),
   suggestionList: document.querySelector("#suggestion-list"),
+  aiAdviceStatus: document.querySelector("#ai-advice-status"),
+  aiAdviceContent: document.querySelector("#ai-advice-content"),
   runtimeStatus: document.querySelector("#runtime-status"),
 };
 
@@ -83,7 +87,14 @@ async function fetchJsonWithTimeout(url, options = {}, timeoutMs = BACKEND_TIMEO
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+      let message = `HTTP ${response.status}`;
+      try {
+        const errorPayload = await response.json();
+        message = errorPayload.detail || JSON.stringify(errorPayload);
+      } catch (error) {
+        // Keep the HTTP status when the server does not return JSON.
+      }
+      throw new Error(message);
     }
 
     return await response.json();
@@ -193,6 +204,24 @@ async function analyzeViaApi(resumeText, jobText) {
       }),
     },
     8000,
+  );
+}
+
+async function generateAiAdvice(resumeText, jobText, analysis) {
+  return fetchJsonWithTimeout(
+    `${state.apiBaseUrl}/api/ai-suggestions`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        resume: resumeText,
+        job: jobText,
+        analysis,
+      }),
+    },
+    45000,
   );
 }
 
@@ -352,6 +381,82 @@ function renderSuggestions(suggestions, hasResult = true) {
   });
 }
 
+function levelLabel(level) {
+  const labels = {
+    strong: "证据较强",
+    medium: "证据中等",
+    weak: "证据较弱",
+    missing: "缺少证据",
+  };
+  return labels[level] || level;
+}
+
+function priorityText(priority) {
+  const labels = {
+    high: "高优先级",
+    medium: "中优先级",
+    low: "低优先级",
+  };
+  return labels[priority] || priority;
+}
+
+function createAdviceCard(title, bodyItems) {
+  const card = document.createElement("article");
+  card.className = "ai-card";
+
+  const heading = document.createElement("h4");
+  heading.textContent = title;
+  card.append(heading);
+
+  bodyItems.forEach((item) => {
+    const paragraph = document.createElement("p");
+    paragraph.textContent = item;
+    card.append(paragraph);
+  });
+
+  return card;
+}
+
+function renderAiAdvicePlaceholder(message) {
+  elements.aiAdviceContent.replaceChildren();
+  elements.aiAdviceStatus.textContent = message;
+}
+
+function renderAiAdvice(response) {
+  const advice = response.advice;
+  elements.aiAdviceContent.replaceChildren();
+  elements.aiAdviceStatus.textContent = `AI 建议已生成 · ${response.model} · 规则分数保持 ${response.rule_score}/100`;
+
+  const summary = createAdviceCard("整体判断", [advice.summary]);
+
+  const focus = createAdviceCard(
+    "岗位核心要求",
+    advice.job_focus.map((item) => `${item.title}：${item.reason}（相关词：${item.related_keywords.join("、")}）`),
+  );
+
+  const evidence = createAdviceCard(
+    "简历证据强度",
+    advice.evidence_review.map(
+      (item) =>
+        `${item.title}｜${levelLabel(item.level)}：${item.resume_evidence}；缺口：${item.gap}；原因：${item.why_it_matters}`,
+    ),
+  );
+
+  const actions = createAdviceCard(
+    "优先修改动作",
+    advice.top_actions.map(
+      (item) => `${priorityText(item.priority)}｜${item.target_section}：${item.action}。示例：${item.example}`,
+    ),
+  );
+
+  const rewrites = createAdviceCard(
+    "STAR 改写示例",
+    advice.rewrite_examples.map((item) => `Before：${item.before}\nAfter：${item.after}\n为什么更好：${item.why_better}`),
+  );
+
+  elements.aiAdviceContent.append(summary, focus, evidence, actions, rewrites);
+}
+
 function renderResult(result) {
   state.lastResult = result;
 
@@ -362,12 +467,18 @@ function renderResult(result) {
   elements.matchedWeight.textContent = result.score_details.matched_weight;
   elements.totalWeight.textContent = result.score_details.total_job_weight;
   elements.copyJsonButton.disabled = false;
+  elements.aiAdviceButton.disabled = !(state.apiAvailable && state.llmConfigured);
 
   renderKeywordList(elements.matchedList, result.matched_keywords, "matched");
   renderKeywordList(elements.missingList, result.missing_keywords, "missing");
   renderCategorySummary(result.category_summary);
   renderPriorityGaps(result.priority_gaps);
   renderSuggestions(result.suggestion_items);
+  renderAiAdvicePlaceholder(
+    state.apiAvailable && state.llmConfigured
+      ? "基础分析已完成，可以生成 AI 建议"
+      : "AI 建议需要后端 API 和 OPENAI_API_KEY",
+  );
 }
 
 function renderEmptyResult() {
@@ -378,11 +489,13 @@ function renderEmptyResult() {
   elements.matchedWeight.textContent = "0";
   elements.totalWeight.textContent = "0";
   elements.copyJsonButton.disabled = true;
+  elements.aiAdviceButton.disabled = true;
   renderKeywordList(elements.matchedList, [], "matched");
   renderKeywordList(elements.missingList, [], "missing");
   renderCategorySummary([]);
   renderPriorityGaps([]);
   renderSuggestions([], false);
+  renderAiAdvicePlaceholder("完成基础分析后可生成");
 }
 
 async function loadKeywords() {
@@ -405,6 +518,7 @@ async function detectBackend() {
   const apiBaseUrl = getApiBaseUrlCandidate();
 
   if (!apiBaseUrl) {
+    state.llmConfigured = false;
     elements.runtimeStatus.textContent = "Browser mode";
     return;
   }
@@ -413,10 +527,20 @@ async function detectBackend() {
     const health = await fetchJsonWithTimeout(`${apiBaseUrl}/health`);
     state.apiBaseUrl = apiBaseUrl;
     state.apiAvailable = health.status === "ok";
+    state.llmConfigured = Boolean(health.llm_configured);
     elements.runtimeStatus.textContent = state.apiAvailable ? "API mode" : "Browser mode";
+    if (state.lastResult) {
+      elements.aiAdviceButton.disabled = !(state.apiAvailable && state.llmConfigured);
+      renderAiAdvicePlaceholder(
+        state.llmConfigured
+          ? "基础分析已完成，可以生成 AI 建议"
+          : "后端在线，但需要配置 OPENAI_API_KEY",
+      );
+    }
   } catch (error) {
     state.apiBaseUrl = "";
     state.apiAvailable = false;
+    state.llmConfigured = false;
     elements.runtimeStatus.textContent = "Browser mode";
   }
 }
@@ -458,6 +582,42 @@ function bindEvents() {
     } catch (error) {
       elements.runNote.textContent = "复制失败";
       console.error(error);
+    }
+  });
+
+  elements.aiAdviceButton.addEventListener("click", async () => {
+    const resumeText = elements.resumeInput.value.trim();
+    const jobText = elements.jobInput.value.trim();
+
+    if (!state.apiAvailable) {
+      renderAiAdvicePlaceholder("请先启动后端 API，再生成 AI 建议");
+      return;
+    }
+
+    if (!state.llmConfigured) {
+      renderAiAdvicePlaceholder("请先在后端配置 OPENAI_API_KEY，再生成 AI 建议");
+      return;
+    }
+
+    if (!state.lastResult || !resumeText || !jobText) {
+      renderAiAdvicePlaceholder("请先完成基础分析");
+      return;
+    }
+
+    elements.aiAdviceButton.disabled = true;
+    elements.aiAdviceStatus.textContent = "AI 建议生成中";
+
+    try {
+      const response = await generateAiAdvice(resumeText, jobText, state.lastResult);
+      state.lastResult.ai_advice = response;
+      renderAiAdvice(response);
+      elements.runNote.textContent = "AI 建议已生成";
+    } catch (error) {
+      renderAiAdvicePlaceholder(`AI 建议生成失败：${error.message}`);
+      elements.runNote.textContent = "AI 建议生成失败";
+      console.error(error);
+    } finally {
+      elements.aiAdviceButton.disabled = !(state.apiAvailable && state.llmConfigured);
     }
   });
 }

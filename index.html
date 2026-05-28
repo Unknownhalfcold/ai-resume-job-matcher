@@ -161,11 +161,23 @@
               <h3 id="suggestion-title">优化建议</h3>
               <ol id="suggestion-list"></ol>
             </section>
+
+            <section class="result-block ai-advice" aria-labelledby="ai-advice-title">
+              <div class="ai-advice-heading">
+                <div>
+                  <h3 id="ai-advice-title">AI 建议层</h3>
+                  <p>保留规则分数，用 LLM 补充岗位重点、证据强度和改写示例。</p>
+                </div>
+                <button class="button secondary" id="ai-advice-button" type="button" disabled>生成 AI 建议</button>
+              </div>
+              <p class="ai-advice-status" id="ai-advice-status">完成基础分析后可生成</p>
+              <div class="ai-advice-content" id="ai-advice-content"></div>
+            </section>
           </section>
         </div>
       </section>
     </main>
 
-    <script src="assets/app.js?v=3"></script>
+    <script src="assets/app.js?v=4"></script>
   </body>
 </html>

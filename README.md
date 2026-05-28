@@ -21,13 +21,14 @@ AI Resume Job Matcher 是一个简历与岗位匹配度分析工具。
 - 按能力维度展示覆盖情况
 - 标记高优先级缺口
 - 生成结构化简历优化建议
+- 在配置 API Key 后生成 LLM 个性化建议
 - 提供网页交互界面
 - 提供 FastAPI 后端接口
 - 支持文本报告与 JSON 输出
 
 ## 当前版本范围
 
-当前 Web 版本支持直接粘贴简历和岗位 JD 进行分析；Python 版本支持本地文本文件输入。当前版本不依赖数据库，也不调用外部 AI API。
+当前 Web 版本支持直接粘贴简历和岗位 JD 进行分析；Python 版本支持本地文本文件输入。当前版本不依赖数据库。LLM 建议层为可选能力，只有配置后端环境变量 `OPENAI_API_KEY` 后才会调用外部 AI API。
 
 已完成：
 
@@ -40,6 +41,7 @@ AI Resume Job Matcher 是一个简历与岗位匹配度分析工具。
 - 开始页产品入口
 - 能力维度和优先级结果展示
 - FastAPI API MVP
+- 可选 LLM 建议层接口
 - 产品需求、评分逻辑和路线图文档
 
 暂未包含：
@@ -47,7 +49,7 @@ AI Resume Job Matcher 是一个简历与岗位匹配度分析工具。
 - 用户账号
 - 数据库存储
 - PDF/DOCX 简历解析
-- LLM 个性化改写建议
+- 线上后端部署
 
 ## 快速运行
 
@@ -79,6 +81,14 @@ py -m venv .venv
 ```
 
 本地前端会自动检测 `http://localhost:8001`。后端在线时使用 API 模式；后端未运行时使用浏览器本地分析。
+
+启用 LLM 建议层：
+
+```powershell
+$env:OPENAI_API_KEY="你的 OpenAI API Key"
+$env:OPENAI_MODEL="gpt-5.5"
+.\.venv\Scripts\python.exe -m uvicorn api.server:app --reload --port 8001
+```
 
 输出 JSON：
 
@@ -125,6 +135,7 @@ py -X utf8 scripts/analyze_match.py --resume local_inputs/my_resume.txt --job lo
 - `assets/app.js`：浏览器端匹配逻辑
 - `data/keywords.json`：共享关键词配置
 - `api/server.py`：FastAPI 后端接口
+- `api/llm_advisor.py`：LLM 建议层
 - `requirements.txt`：后端依赖
 - `scripts/analyze_match.py`：简历岗位匹配分析脚本
 - `examples/resume_sample.txt`：示例简历
@@ -134,12 +145,13 @@ py -X utf8 scripts/analyze_match.py --resume local_inputs/my_resume.txt --job lo
 - `docs/PYTHON_DEMO.md`：Python MVP 运行说明
 - `docs/WEB_MVP.md`：Web MVP 运行说明
 - `docs/API_MVP.md`：API MVP 运行说明
+- `docs/LLM_ADVICE.md`：LLM 建议层说明
 - `docs/ROADMAP.md`：产品路线图
 
 ## 后续路线
 
 1. 扩展关键词库和评分可解释性
 2. 扩展更多岗位方向的关键词库
-3. 接入 LLM 生成更个性化的简历优化建议
+3. 扩展 LLM 建议层的证据判断和改写质量
 4. 增加 PDF/DOCX 简历解析能力
 5. 在需要保存历史记录时引入数据库
