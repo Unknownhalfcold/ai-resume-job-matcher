@@ -2,7 +2,8 @@
 
 AI Resume Job Matcher 是一个简历与岗位匹配度分析工具。
 
-<img width="2880" height="1701" alt="unknownhalfcold github io_ai-resume-job-matcher_ (3)" src="https://github.com/user-attachments/assets/ea325f4c-cac6-4bc2-9e79-914eaf88dbca" />
+<img width="2880" height="1800" alt="unknownhalfcold github io_ai-resume-job-matcher_ (4)" src="https://github.com/user-attachments/assets/b5bdeaf7-14b3-4fcd-a1a6-f350485cd259" />
+
 
 
 
