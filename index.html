@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>AI Resume Job Matcher</title>
-    <link rel="stylesheet" href="assets/styles.css?v=8">
+    <link rel="stylesheet" href="assets/styles.css?v=9">
   </head>
   <body>
     <header class="topbar">
@@ -111,10 +111,12 @@
               <label class="field">
                 <span>简历文本</span>
                 <textarea id="resume-input" spellcheck="false" placeholder="粘贴简历内容，或上传 Word / PDF 后自动提取"></textarea>
+                <span class="input-status" id="resume-file-status" role="status" hidden></span>
               </label>
               <label class="field">
                 <span>岗位 JD</span>
                 <textarea id="job-input" spellcheck="false" placeholder="粘贴岗位描述，或上传 JD 截图进行 OCR"></textarea>
+                <span class="input-status" id="jd-file-status" role="status" hidden></span>
               </label>
             </div>
           </section>
@@ -270,7 +272,18 @@
       </div>
     </div>
 
+    <div class="dialog-modal" id="input-alert" hidden>
+      <div class="dialog-card" role="alertdialog" aria-modal="true" aria-labelledby="input-alert-title" aria-describedby="input-alert-message">
+        <p class="eyebrow">Input Required</p>
+        <h2 id="input-alert-title">请补全分析内容</h2>
+        <p id="input-alert-message">请先输入简历和岗位 JD，再开始分析。</p>
+        <div class="dialog-actions">
+          <button class="button primary" id="close-input-alert" type="button">我知道了</button>
+        </div>
+      </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script src="assets/app.js?v=8"></script>
+    <script src="assets/app.js?v=9"></script>
   </body>
 </html>

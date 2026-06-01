@@ -48,6 +48,9 @@ const elements = {
   closeExampleButton: document.querySelector("#close-example"),
   useExampleButton: document.querySelector("#use-example"),
   exampleModal: document.querySelector("#example-modal"),
+  inputAlert: document.querySelector("#input-alert"),
+  inputAlertMessage: document.querySelector("#input-alert-message"),
+  closeInputAlertButton: document.querySelector("#close-input-alert"),
   loadSampleButton: document.querySelector("#load-sample"),
   clearButton: document.querySelector("#clear-all"),
   copyJsonButton: document.querySelector("#copy-json"),
@@ -81,6 +84,8 @@ const elements = {
   progressValue: document.querySelector("#progress-value"),
   progressStep: document.querySelector("#progress-step"),
   loadingMessage: document.querySelector("#loading-message"),
+  resumeFileStatus: document.querySelector("#resume-file-status"),
+  jdFileStatus: document.querySelector("#jd-file-status"),
   resultPanel: document.querySelector("#result"),
 };
 
@@ -189,6 +194,159 @@ function updateProgress(value, step, message) {
   elements.loadingMessage.textContent = message;
   if (elements.analysisStatus) {
     elements.analysisStatus.textContent = step;
+  }
+}
+
+function showInputAlert(message, focusTarget = null) {
+  elements.inputAlertMessage.textContent = message;
+  elements.inputAlert.hidden = false;
+  elements.closeInputAlertButton.focus();
+  elements.closeInputAlertButton.onclick = () => {
+    elements.inputAlert.hidden = true;
+    focusTarget?.focus();
+  };
+}
+
+function setInputStatus(target, title, detail = "") {
+  const statusElement = target === "resume" ? elements.resumeFileStatus : elements.jdFileStatus;
+  statusElement.innerHTML = `<strong>${title}</strong>${detail ? `<small>${detail}</small>` : ""}`;
+  statusElement.hidden = false;
+}
+
+function clearInputStatus(target) {
+  const statusElement = target === "resume" ? elements.resumeFileStatus : elements.jdFileStatus;
+  statusElement.replaceChildren();
+  statusElement.hidden = true;
+}
+
+function isResumeFile(file) {
+  const name = file.name.toLowerCase();
+  return (
+    name.endsWith(".pdf") ||
+    name.endsWith(".docx") ||
+    file.type === "application/pdf" ||
+    file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  );
+}
+
+function isImageFile(file) {
+  return file.type.startsWith("image/") || /\.(png|jpe?g|webp)$/i.test(file.name);
+}
+
+function findClipboardFile(event, matcher) {
+  const files = [...(event.clipboardData?.files || [])];
+  return files.find(matcher) || null;
+}
+
+function findDroppedFile(event, matcher) {
+  const files = [...(event.dataTransfer?.files || [])];
+  return files.find(matcher) || null;
+}
+
+function normalizeFileName(file, fallback) {
+  return file?.name && file.name !== "image.png" ? file.name : fallback;
+}
+
+function cleanJobDescriptionText(rawText) {
+  const original = rawText.replace(/\r/g, "").trim();
+  if (!original) return "";
+
+  const startPattern =
+    /(岗位职责|职位描述|工作职责|工作内容|岗位描述|职位要求|岗位要求|任职要求|任职资格|任职条件|Responsibilities|Requirements|Qualifications|Job Description)/i;
+  const stopPattern =
+    /(公司介绍|关于我们|企业介绍|工商信息|公司地址|工作地址|相似职位|推荐职位|职位福利|薪资福利|举报|分享|收藏|立即沟通|立即申请|投递简历|申请职位|查看更多|展开全部)/i;
+  const noisePattern =
+    /^(首页|登录|注册|消息|搜索|筛选|推荐|广告|打开APP|下载APP|扫码|微信|微博|分享|收藏|举报|反馈|上一页|下一页|更多|展开|收起|立即申请|申请职位|投递简历|在线沟通|查看地图|公司主页)$/i;
+  const valuePattern =
+    /(岗位|职位|职责|要求|任职|资格|经验|能力|熟悉|负责|参与|协作|沟通|数据|产品|用户|项目|分析|设计|开发|运营|模型|AI|LLM|SQL|Python|Excel|本科|学历|专业|优先|experience|skill|requirement|responsibilit|qualif)/i;
+
+  const lines = original
+    .split("\n")
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+
+  const kept = [];
+  const seen = new Set();
+  let insideJobBlock = false;
+
+  lines.forEach((line) => {
+    const compact = line.replace(/[：:]\s*$/, "");
+    if (!compact || compact.length > 260) return;
+    if (/^https?:\/\//i.test(compact)) return;
+    if (noisePattern.test(compact)) return;
+
+    if (startPattern.test(compact)) {
+      insideJobBlock = true;
+    } else if (insideJobBlock && stopPattern.test(compact) && kept.length >= 3) {
+      insideJobBlock = false;
+      return;
+    }
+
+    const bulletLike = /^([-*•·]|\d+[.、)]|[一二三四五六七八九十]+[、.])/.test(compact);
+    const keywordHit = valuePattern.test(compact);
+    const useful = insideJobBlock || bulletLike || keywordHit;
+
+    if (!useful) return;
+    if (seen.has(compact)) return;
+    seen.add(compact);
+    kept.push(compact);
+  });
+
+  const cleaned = kept.join("\n");
+  return cleaned.length >= Math.min(120, original.length * 0.35) ? cleaned : original;
+}
+
+function applyCleanedJobText(rawText, sourceLabel = "JD 文本") {
+  const cleaned = cleanJobDescriptionText(rawText);
+  elements.jobInput.value = cleaned;
+  const removed = rawText.trim().length - cleaned.trim().length;
+  if (removed > 30) {
+    setInputStatus("jd", `${sourceLabel}已导入`, `已自动清理约 ${removed} 个无关字符`);
+    elements.runNote.textContent = "已用规则层清理 JD 噪音";
+  } else {
+    setInputStatus("jd", `${sourceLabel}已导入`, "内容已准备分析");
+  }
+}
+
+async function handleResumeFile(file, source = "上传") {
+  showLoading("正在读取简历文件");
+  updateProgress(18, "上传简历", "正在提取 Word/PDF 中的文本");
+
+  try {
+    const result = await extractResumeFile(file);
+    elements.resumeInput.value = result.text;
+    updateProgress(100, "简历已提取", `${result.filename || file.name || "文件"}：${result.character_count} 字符`);
+    setInputStatus("resume", "简历文件已导入", result.filename || normalizeFileName(file, "剪贴板简历文件"));
+    elements.runNote.textContent = result.warnings?.length ? result.warnings.join("；") : `${source}简历文本已提取`;
+  } catch (error) {
+    elements.runNote.textContent = error.message;
+    updateProgress(100, "提取失败", error.message);
+  } finally {
+    window.setTimeout(hideLoading, 700);
+    elements.resumeFile.value = "";
+    showPage("analyze");
+  }
+}
+
+async function handleJdImage(file, source = "上传") {
+  showLoading("正在识别 JD 截图");
+  updateProgress(10, "加载 OCR", "正在准备浏览器端 OCR");
+
+  try {
+    const text = await extractTextFromJdImage(file);
+    if (!text) {
+      throw new Error("截图中没有识别到文字，请换一张更清晰的截图，或直接粘贴 JD 文本。");
+    }
+    applyCleanedJobText(text, source === "粘贴" ? "粘贴截图" : "JD 截图");
+    updateProgress(100, "JD 已识别", `已提取 ${text.length} 个字符`);
+    setInputStatus("jd", "JD 截图已导入", normalizeFileName(file, source === "粘贴" ? "剪贴板截图" : "截图文件"));
+  } catch (error) {
+    elements.runNote.textContent = error.message;
+    updateProgress(100, "OCR 失败", error.message);
+  } finally {
+    window.setTimeout(hideLoading, 900);
+    elements.jdImageFile.value = "";
+    showPage("analyze");
   }
 }
 
@@ -812,9 +970,17 @@ function bindEvents() {
     }
   });
 
+  elements.inputAlert.addEventListener("click", (event) => {
+    if (event.target === elements.inputAlert) {
+      elements.inputAlert.hidden = true;
+    }
+  });
+
   elements.useExampleButton.addEventListener("click", () => {
     elements.resumeInput.value = SAMPLE_RESUME;
     elements.jobInput.value = SAMPLE_JOB;
+    setInputStatus("resume", "示例简历已载入", "可直接开始分析");
+    setInputStatus("jd", "示例 JD 已载入", "可直接开始分析");
     elements.exampleModal.hidden = true;
     hideLoading();
     showPage("analyze");
@@ -824,47 +990,97 @@ function bindEvents() {
   elements.resumeFile.addEventListener("change", async () => {
     const file = elements.resumeFile.files?.[0];
     if (!file) return;
-
-    showLoading("正在读取简历文件");
-    updateProgress(18, "上传简历", "正在上传 Word/PDF 并提取文本");
-
-    try {
-      const result = await extractResumeFile(file);
-      elements.resumeInput.value = result.text;
-      updateProgress(100, "简历已提取", `${result.filename || "文件"}：${result.character_count} 字符`);
-      elements.runNote.textContent = result.warnings?.length ? result.warnings.join("；") : "简历文本已提取";
-    } catch (error) {
-      elements.runNote.textContent = error.message;
-      updateProgress(100, "提取失败", error.message);
-    } finally {
-      window.setTimeout(hideLoading, 700);
-      elements.resumeFile.value = "";
-      showPage("analyze");
-    }
+    await handleResumeFile(file);
   });
 
   elements.jdImageFile.addEventListener("change", async () => {
     const file = elements.jdImageFile.files?.[0];
     if (!file) return;
+    await handleJdImage(file);
+  });
 
-    showLoading("正在识别 JD 截图");
-    updateProgress(10, "加载 OCR", "正在准备浏览器端 OCR");
+  elements.resumeInput.addEventListener("paste", async (event) => {
+    const file = findClipboardFile(event, isResumeFile);
+    if (!file) {
+      window.setTimeout(() => {
+        if (elements.resumeInput.value.trim()) {
+          setInputStatus("resume", "简历文本已粘贴", "浏览器未提供源文件名");
+        }
+      }, 0);
+      return;
+    }
 
-    try {
-      const text = await extractTextFromJdImage(file);
-      if (!text) {
-        throw new Error("截图中没有识别到文字，请换一张更清晰的截图。");
+    event.preventDefault();
+    await handleResumeFile(file, "粘贴");
+  });
+
+  elements.jobInput.addEventListener("paste", async (event) => {
+    const imageFile = findClipboardFile(event, isImageFile);
+    if (imageFile) {
+      event.preventDefault();
+      await handleJdImage(imageFile, "粘贴");
+      return;
+    }
+
+    const pastedText = event.clipboardData?.getData("text/plain");
+    if (pastedText?.trim()) {
+      event.preventDefault();
+      applyCleanedJobText(pastedText, "JD 文本");
+    }
+  });
+
+  [
+    [elements.resumeInput, "resume", isResumeFile, handleResumeFile],
+    [elements.jobInput, "jd", isImageFile, handleJdImage],
+  ].forEach(([input, target, matcher, handler]) => {
+    input.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      input.classList.add("is-dragging");
+    });
+
+    input.addEventListener("dragleave", () => {
+      input.classList.remove("is-dragging");
+    });
+
+    input.addEventListener("drop", async (event) => {
+      const file = findDroppedFile(event, matcher);
+      if (!file) return;
+      event.preventDefault();
+      input.classList.remove("is-dragging");
+      await handler(file, "拖入");
+    });
+  });
+
+  elements.resumeInput.addEventListener("input", () => {
+    if (!elements.resumeInput.value.trim()) {
+      clearInputStatus("resume");
+    }
+  });
+
+  elements.jobInput.addEventListener("input", () => {
+    if (!elements.jobInput.value.trim()) {
+      clearInputStatus("jd");
+    } else {
+      window.clearTimeout(elements.jobInput.cleanTimer);
+      elements.jobInput.cleanTimer = window.setTimeout(() => {
+        const current = elements.jobInput.value;
+        const cleaned = cleanJobDescriptionText(current);
+        if (cleaned !== current && current.length - cleaned.length > 80) {
+          elements.jobInput.value = cleaned;
+          setInputStatus("jd", "JD 文本已清理", "已自动排除明显网页噪音");
+        }
+      }, 700);
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      if (!elements.exampleModal.hidden) {
+        elements.exampleModal.hidden = true;
       }
-      elements.jobInput.value = text;
-      updateProgress(100, "JD 已识别", `已提取 ${text.length} 个字符`);
-      elements.runNote.textContent = "JD 截图文字已识别";
-    } catch (error) {
-      elements.runNote.textContent = error.message;
-      updateProgress(100, "OCR 失败", error.message);
-    } finally {
-      window.setTimeout(hideLoading, 900);
-      elements.jdImageFile.value = "";
-      showPage("analyze");
+      if (!elements.inputAlert.hidden) {
+        elements.inputAlert.hidden = true;
+      }
     }
   });
 
@@ -873,6 +1089,12 @@ function bindEvents() {
     const jobText = elements.jobInput.value.trim();
 
     if (!resumeText || !jobText) {
+      const message = !resumeText && !jobText
+        ? "请先补全简历和岗位 JD，再开始分析。"
+        : !resumeText
+          ? "请先输入或上传简历内容。"
+          : "请先输入、粘贴或上传岗位 JD。";
+      showInputAlert(message, !resumeText ? elements.resumeInput : elements.jobInput);
       elements.runNote.textContent = "请补全简历和岗位 JD";
       return;
     }
@@ -897,6 +1119,8 @@ function bindEvents() {
   elements.loadSampleButton.addEventListener("click", () => {
     elements.resumeInput.value = SAMPLE_RESUME;
     elements.jobInput.value = SAMPLE_JOB;
+    setInputStatus("resume", "示例简历已载入", "可直接开始分析");
+    setInputStatus("jd", "示例 JD 已载入", "可直接开始分析");
     hideLoading();
     showPage("analyze");
     elements.runNote.textContent = `关键词库：${state.keywords.length} 项；示例已载入`;
@@ -907,6 +1131,8 @@ function bindEvents() {
     elements.jobInput.value = "";
     state.lastResult = null;
     renderEmptyResult();
+    clearInputStatus("resume");
+    clearInputStatus("jd");
     hideLoading();
     elements.runNote.textContent = `关键词库：${state.keywords.length} 项`;
   });

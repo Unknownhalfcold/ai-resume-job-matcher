@@ -667,6 +667,54 @@ textarea {
   outline: none;
 }
 
+textarea.is-dragging {
+  border-color: rgba(0, 113, 227, 0.72);
+  background: rgba(0, 113, 227, 0.05);
+  box-shadow: 0 0 0 4px rgba(0, 113, 227, 0.12);
+}
+
+.input-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 8px 11px;
+  border: 1px solid rgba(29, 143, 91, 0.22);
+  border-radius: 999px;
+  color: #0f6d43;
+  background: rgba(29, 143, 91, 0.08);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.input-status::before {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  color: #ffffff;
+  background: var(--green);
+  content: "✓";
+  font-size: 11px;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+
+.input-status strong,
+.input-status small {
+  min-width: 0;
+}
+
+.input-status small {
+  overflow: hidden;
+  max-width: min(320px, 52vw);
+  color: #337d57;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 input,
 select {
   width: 100%;
@@ -1085,7 +1133,8 @@ select:focus {
   font-size: 13px;
 }
 
-.example-modal {
+.example-modal,
+.dialog-modal {
   position: fixed;
   inset: 0;
   z-index: 60;
@@ -1096,7 +1145,8 @@ select:focus {
   backdrop-filter: blur(22px);
 }
 
-.example-card {
+.example-card,
+.dialog-card {
   width: min(760px, 100%);
   padding: 22px;
   border: 1px solid rgba(0, 0, 0, 0.08);
@@ -1104,6 +1154,22 @@ select:focus {
   background: rgba(255, 255, 255, 0.92);
   box-shadow: var(--shadow);
   animation: page-in 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.dialog-card {
+  width: min(430px, 100%);
+}
+
+.dialog-card p:not(.eyebrow) {
+  margin: 12px 0 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
 }
 
 .example-heading,
