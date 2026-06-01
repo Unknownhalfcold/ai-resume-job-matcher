@@ -243,9 +243,21 @@ function isResumeFile(file) {
   return (
     name.endsWith(".pdf") ||
     name.endsWith(".docx") ||
+    name.endsWith(".doc") ||
     file.type === "application/pdf" ||
     file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
   );
+}
+
+function getResumeFileValidationError(file) {
+  const name = file.name.toLowerCase();
+  if (name.endsWith(".doc")) {
+    return "当前暂不支持旧版 .doc，请先在 Word 中另存为 .docx，或导出为可复制文本的 PDF。";
+  }
+  if (!name.endsWith(".docx") && !name.endsWith(".pdf") && !isResumeFile(file)) {
+    return "当前只支持 .docx 和可复制文本的 .pdf 简历。";
+  }
+  return "";
 }
 
 function isImageFile(file) {
@@ -271,11 +283,13 @@ function cleanJobDescriptionText(rawText) {
   if (!original) return "";
 
   const startPattern =
-    /(岗位职责|职位描述|工作职责|工作内容|岗位描述|职位要求|岗位要求|任职要求|任职资格|任职条件|Responsibilities|Requirements|Qualifications|Job Description)/i;
+    /(岗位职责|职位描述|工作职责|工作内容|岗位描述|职位要求|岗位要求|任职要求|任职资格|任职条件|工作要求|任职标准|你将负责|Responsibilities|Requirements|Qualifications|Job Description)/i;
   const stopPattern =
-    /(公司介绍|关于我们|企业介绍|工商信息|公司地址|工作地址|相似职位|推荐职位|职位福利|薪资福利|举报|分享|收藏|立即沟通|立即申请|投递简历|申请职位|查看更多|展开全部)/i;
+    /(公司介绍|关于我们|企业介绍|工商信息|公司地址|工作地址|相似职位|推荐职位|职位福利|薪资福利|福利待遇|职位亮点|企业信息|团队介绍|举报|分享|收藏|立即沟通|立即申请|投递简历|申请职位|查看更多|展开全部)/i;
   const noisePattern =
-    /^(首页|登录|注册|消息|搜索|筛选|推荐|广告|打开APP|下载APP|扫码|微信|微博|分享|收藏|举报|反馈|上一页|下一页|更多|展开|收起|立即申请|申请职位|投递简历|在线沟通|查看地图|公司主页)$/i;
+    /^(首页|登录|注册|消息|搜索|筛选|推荐|广告|打开APP|下载APP|扫码|微信|微博|分享|收藏|举报|反馈|上一页|下一页|更多|展开|收起|立即申请|申请职位|投递简历|在线沟通|查看地图|公司主页|职位详情|公司详情|热招职位|全部职位)$/i;
+  const weakNoisePattern =
+    /(浏览量|回复率|活跃|在线|刚刚|分钟前|小时前|天前|发布于|浏览|收藏|分享|举报|APP|扫码|微信|电话|邮箱|地图|地址|薪资|月薪|年薪|五险一金|双休|大小周|弹性|团建|带薪|补贴|餐补|房补|交通补助|股票期权|融资|天使轮|A轮|B轮|C轮|上市|不需要融资|公司规模|少于\d+人|\d+-\d+人)/i;
   const valuePattern =
     /(岗位|职位|职责|要求|任职|资格|经验|能力|熟悉|负责|参与|协作|沟通|数据|产品|用户|项目|分析|设计|开发|运营|模型|AI|LLM|SQL|Python|Excel|本科|学历|专业|优先|experience|skill|requirement|responsibilit|qualif)/i;
 
@@ -287,32 +301,42 @@ function cleanJobDescriptionText(rawText) {
   const kept = [];
   const seen = new Set();
   let insideJobBlock = false;
+  let stopHit = false;
 
-  lines.forEach((line) => {
-    const compact = line.replace(/[：:]\s*$/, "");
-    if (!compact || compact.length > 260) return;
-    if (/^https?:\/\//i.test(compact)) return;
-    if (noisePattern.test(compact)) return;
+  for (const line of lines) {
+    if (stopHit) break;
+    const compact = line
+      .replace(/^[^\w\u4e00-\u9fa5]+/, "")
+      .replace(/[：:]\s*$/, "")
+      .trim();
+    if (!compact || compact.length > 260) continue;
+    if (/^https?:\/\//i.test(compact)) continue;
+    if (noisePattern.test(compact)) continue;
 
     if (startPattern.test(compact)) {
       insideJobBlock = true;
     } else if (insideJobBlock && stopPattern.test(compact) && kept.length >= 3) {
-      insideJobBlock = false;
-      return;
+      stopHit = true;
+      continue;
     }
 
     const bulletLike = /^([-*•·]|\d+[.、)]|[一二三四五六七八九十]+[、.])/.test(compact);
     const keywordHit = valuePattern.test(compact);
     const useful = insideJobBlock || bulletLike || keywordHit;
 
-    if (!useful) return;
-    if (seen.has(compact)) return;
+    if (!useful) continue;
+    if (!insideJobBlock && weakNoisePattern.test(compact) && !startPattern.test(compact)) continue;
+    if (seen.has(compact)) continue;
     seen.add(compact);
     kept.push(compact);
-  });
+  }
 
   const cleaned = kept.join("\n");
-  return cleaned.length >= Math.min(120, original.length * 0.35) ? cleaned : original;
+  const hasClearJobSignal = kept.some((line) => startPattern.test(line)) || kept.filter((line) => valuePattern.test(line)).length >= 3;
+  if (cleaned && (hasClearJobSignal || cleaned.length >= Math.min(120, original.length * 0.25))) {
+    return cleaned;
+  }
+  return original;
 }
 
 function applyCleanedJobText(rawText, sourceLabel = "JD 文本") {
@@ -332,6 +356,10 @@ async function handleResumeFile(file, source = "上传") {
   updateProgress(18, "上传简历", "正在提取 Word/PDF 中的文本");
 
   try {
+    const validationError = getResumeFileValidationError(file);
+    if (validationError) {
+      throw new Error(validationError);
+    }
     const result = await extractResumeFile(file);
     elements.resumeInput.value = result.text;
     updateProgress(100, "简历已提取", `${result.filename || file.name || "文件"}：${result.character_count} 字符`);
@@ -339,6 +367,7 @@ async function handleResumeFile(file, source = "上传") {
     elements.runNote.textContent = result.warnings?.length ? result.warnings.join("；") : `${source}简历文本已提取`;
   } catch (error) {
     elements.runNote.textContent = error.message;
+    setInputStatus("resume", "简历上传失败", error.message);
     updateProgress(100, "提取失败", error.message);
   } finally {
     window.setTimeout(hideLoading, 700);
