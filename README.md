@@ -25,6 +25,7 @@ AI Resume Job Matcher 是一个简历与岗位匹配度分析工具。
 - 支持上传 DOCX/PDF 简历并自动提取文本
 - 支持上传 JD 截图并在浏览器端 OCR 识别
 - 在配置 API Key 后生成 LLM 个性化建议
+- LLM 建议层采用固定 schema，输出 JD 规范化、要求重要程度、量化证据和 gap evidence
 - 支持用户自带 API Key 的 BYOK 模式
 - 提供网页交互界面
 - 提供 FastAPI 后端接口

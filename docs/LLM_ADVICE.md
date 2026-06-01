@@ -13,6 +13,28 @@ LLM 层负责个性化建议
 
 这样可以避免同一份简历在不同时间被模型打出不同分数。
 
+## 结构化分析口径
+
+当前 LLM 层采用固定 schema 输出，目的是让模型结果更像“分析表格”，而不是自由聊天。
+
+固定边界：
+
+- `rule_score` 是唯一最终匹配分数，LLM 不重算、不覆盖。
+- `importance` 只允许 `must_have`、`important`、`nice_to_have`。
+- `weight` 使用 1-5，表示岗位要求的重要程度。
+- `evidence_score` 使用 0-100，越高表示简历证据越充分。
+- `gap_score` 使用 0-100，越高表示缺口越严重。
+- LLM 只能分析用户提供的简历和 JD，不访问或抓取第三方网站。
+
+输出会包含：
+
+- `normalized_job`：规范化后的岗位标题、职责、岗位要求和重要程度。
+- `scoring_rubric`：LLM 对岗位能力维度的解释口径。
+- `evidence_review`：简历对每个要求的证据强度。
+- `quantified_gaps`：量化后的 gap evidence。
+- `top_actions`：优先修改动作。
+- `rewrite_examples`：基于真实简历内容的改写示例。
+
 ## 为什么不让 LLM 直接打分
 
 LLM 适合理解语义、总结原因和生成表达建议，但它的输出可能受到提示词、模型版本和上下文细节影响。
@@ -58,10 +80,15 @@ POST /api/ai-suggestions
   "api_style": "responses",
   "rule_score": 43,
   "rule_score_source": "keyword_weight_formula",
+  "analysis_contract": {
+    "final_score_policy": "rule_score is the only final match score; LLM output must not replace it."
+  },
   "advice": {
     "summary": "...",
-    "job_focus": [],
+    "normalized_job": {},
+    "scoring_rubric": [],
     "evidence_review": [],
+    "quantified_gaps": [],
     "top_actions": [],
     "rewrite_examples": []
   }

@@ -12,6 +12,7 @@ from api.document_parser import DocumentParseError, extract_resume_text
 from api.llm_advisor import (
     LLMConfigurationError,
     generate_advice,
+    get_llm_analysis_contract,
     get_llm_config,
     get_llm_metadata,
 )
@@ -150,5 +151,6 @@ def ai_suggestions(payload: AISuggestionsRequest) -> dict[str, Any]:
         "api_style": llm_config.api_style,
         "rule_score": analysis.get("score"),
         "rule_score_source": "keyword_weight_formula",
+        "analysis_contract": get_llm_analysis_contract(),
         "advice": advice,
     }

@@ -14,6 +14,18 @@ DEFAULT_MAX_OUTPUT_TOKENS = 2200
 
 APIStyle = Literal["responses", "chat_completions"]
 
+LLM_ANALYSIS_CONTRACT: dict[str, Any] = {
+    "final_score_policy": "rule_score is the only final match score; LLM output must not replace it.",
+    "importance_scale": {
+        "must_have": "Hard requirement. Weight usually 4-5.",
+        "important": "Important job requirement. Weight usually 3-4.",
+        "nice_to_have": "Preferred or bonus requirement. Weight usually 1-3.",
+    },
+    "evidence_score_scale": "0-100. Higher means stronger resume evidence for the requirement.",
+    "gap_score_scale": "0-100. Higher means a larger gap between resume evidence and JD expectation.",
+    "privacy_boundary": "Only user-provided resume and JD text are analyzed. No scraping or third-party site access.",
+}
+
 
 class LLMConfigurationError(RuntimeError):
     """Raised when the optional LLM layer is not configured."""
@@ -34,22 +46,57 @@ class LLMConfig:
     temperature: float
 
 
-class JobFocusItem(BaseModel):
+class JobRequirementItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     title: str
+    category: str
+    importance: Literal["must_have", "important", "nice_to_have"]
+    weight: int = Field(ge=1, le=5)
     reason: str
-    related_keywords: list[str]
+    evidence_expected: str
+
+
+class NormalizedJobPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role_title: str
+    jd_summary: str
+    core_responsibilities: list[str] = Field(min_length=2, max_length=6)
+    requirements: list[JobRequirementItem] = Field(min_length=3, max_length=8)
+
+
+class ScoringRubricItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    dimension: str
+    weight: int = Field(ge=1, le=5)
+    what_good_looks_like: str
 
 
 class EvidenceReviewItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     title: str
+    importance: Literal["must_have", "important", "nice_to_have"]
     level: Literal["strong", "medium", "weak", "missing"]
+    evidence_score: int = Field(ge=0, le=100)
+    confidence: int = Field(ge=0, le=100)
     resume_evidence: str
     gap: str
     why_it_matters: str
+
+
+class QuantifiedGapItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    requirement: str
+    importance: Literal["must_have", "important", "nice_to_have"]
+    gap_score: int = Field(ge=0, le=100)
+    current_evidence: str
+    missing_evidence: str
+    impact_on_match: Literal["high", "medium", "low"]
+    recommended_fix: str
 
 
 class TopActionItem(BaseModel):
@@ -73,8 +120,10 @@ class AdvicePayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     summary: str
-    job_focus: list[JobFocusItem] = Field(min_length=3, max_length=5)
+    normalized_job: NormalizedJobPayload
+    scoring_rubric: list[ScoringRubricItem] = Field(min_length=3, max_length=6)
     evidence_review: list[EvidenceReviewItem] = Field(min_length=3, max_length=6)
+    quantified_gaps: list[QuantifiedGapItem] = Field(min_length=2, max_length=6)
     top_actions: list[TopActionItem] = Field(min_length=3, max_length=5)
     rewrite_examples: list[RewriteExampleItem] = Field(min_length=1, max_length=3)
 
@@ -84,31 +133,81 @@ ADVICE_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
     "required": [
         "summary",
-        "job_focus",
+        "normalized_job",
+        "scoring_rubric",
         "evidence_review",
+        "quantified_gaps",
         "top_actions",
         "rewrite_examples",
     ],
     "properties": {
         "summary": {
             "type": "string",
-            "description": "One concise Chinese summary of the resume-job fit.",
+            "description": "One concise Chinese summary of the resume-job fit. It must not change the rule score.",
         },
-        "job_focus": {
+        "normalized_job": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["role_title", "jd_summary", "core_responsibilities", "requirements"],
+            "properties": {
+                "role_title": {"type": "string"},
+                "jd_summary": {"type": "string"},
+                "core_responsibilities": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 6,
+                    "items": {"type": "string"},
+                },
+                "requirements": {
+                    "type": "array",
+                    "minItems": 3,
+                    "maxItems": 8,
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": [
+                            "title",
+                            "category",
+                            "importance",
+                            "weight",
+                            "reason",
+                            "evidence_expected",
+                        ],
+                        "properties": {
+                            "title": {"type": "string"},
+                            "category": {"type": "string"},
+                            "importance": {
+                                "type": "string",
+                                "enum": ["must_have", "important", "nice_to_have"],
+                            },
+                            "weight": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 5,
+                            },
+                            "reason": {"type": "string"},
+                            "evidence_expected": {"type": "string"},
+                        },
+                    },
+                },
+            },
+        },
+        "scoring_rubric": {
             "type": "array",
             "minItems": 3,
-            "maxItems": 5,
+            "maxItems": 6,
             "items": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": ["title", "reason", "related_keywords"],
+                "required": ["dimension", "weight", "what_good_looks_like"],
                 "properties": {
-                    "title": {"type": "string"},
-                    "reason": {"type": "string"},
-                    "related_keywords": {
-                        "type": "array",
-                        "items": {"type": "string"},
+                    "dimension": {"type": "string"},
+                    "weight": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 5,
                     },
+                    "what_good_looks_like": {"type": "string"},
                 },
             },
         },
@@ -121,20 +220,74 @@ ADVICE_SCHEMA: dict[str, Any] = {
                 "additionalProperties": False,
                 "required": [
                     "title",
+                    "importance",
                     "level",
+                    "evidence_score",
+                    "confidence",
                     "resume_evidence",
                     "gap",
                     "why_it_matters",
                 ],
                 "properties": {
                     "title": {"type": "string"},
+                    "importance": {
+                        "type": "string",
+                        "enum": ["must_have", "important", "nice_to_have"],
+                    },
                     "level": {
                         "type": "string",
                         "enum": ["strong", "medium", "weak", "missing"],
                     },
+                    "evidence_score": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 100,
+                    },
+                    "confidence": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 100,
+                    },
                     "resume_evidence": {"type": "string"},
                     "gap": {"type": "string"},
                     "why_it_matters": {"type": "string"},
+                },
+            },
+        },
+        "quantified_gaps": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 6,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": [
+                    "requirement",
+                    "importance",
+                    "gap_score",
+                    "current_evidence",
+                    "missing_evidence",
+                    "impact_on_match",
+                    "recommended_fix",
+                ],
+                "properties": {
+                    "requirement": {"type": "string"},
+                    "importance": {
+                        "type": "string",
+                        "enum": ["must_have", "important", "nice_to_have"],
+                    },
+                    "gap_score": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 100,
+                    },
+                    "current_evidence": {"type": "string"},
+                    "missing_evidence": {"type": "string"},
+                    "impact_on_match": {
+                        "type": "string",
+                        "enum": ["high", "medium", "low"],
+                    },
+                    "recommended_fix": {"type": "string"},
                 },
             },
         },
@@ -180,15 +333,29 @@ SYSTEM_INSTRUCTIONS = """
 你是一个面向中文求职者的 AI 简历优化顾问。
 
 你的任务：
-1. 基于输入的岗位 JD、简历文本和规则匹配结果，生成个性化建议。
-2. 不要修改、重算或质疑 rule_score，最终匹配分数由规则层负责。
-3. 不要编造用户没有提供的经历、公司、数字或结果。
-4. 如果简历缺少证据，请明确指出“需要补充”，不要替用户虚构。
-5. 输出必须是符合 schema 的中文 JSON。
+1. 基于输入的岗位 JD、简历文本和规则匹配结果，生成结构化分析。
+2. 将 JD 规范化为岗位标题、职责、要求、重要程度和 1-5 权重。
+3. 对简历证据进行量化：evidence_score 为 0-100，confidence 为 0-100。
+4. 对 gap evidence 进行量化：gap_score 为 0-100，分数越高表示缺口越严重。
+5. 不要修改、重算或质疑 rule_score，最终匹配分数由规则层负责。
+6. 不要编造用户没有提供的经历、公司、数字、证书或结果。
+7. 如果简历缺少证据，请明确指出“需要补充”，不要替用户虚构。
+8. 输出必须是符合 schema 的中文 JSON。
 
 评分稳定性原则：
 - 规则匹配层负责稳定分数。
-- 你只负责解释岗位重点、证据强弱、修改优先级和 STAR 风格改写示例。
+- LLM 层负责语义理解、JD 规范化、证据强弱、gap evidence 和修改建议。
+- 不允许输出新的最终匹配分数，不允许用 LLM 分数覆盖 rule_score。
+
+重要程度口径：
+- must_have：JD 中明确要求、反复出现或直接影响岗位胜任的能力，权重通常 4-5。
+- important：对岗位有明显帮助但不是唯一准入条件的能力，权重通常 3-4。
+- nice_to_have：加分项、优先项或补充经验，权重通常 1-3。
+
+合规与隐私边界：
+- 只分析用户提供的简历和 JD 文本，不访问、不抓取、不推断第三方网站内容。
+- 不输出与岗位无关的个人敏感评价，例如年龄、性别、民族、婚育、健康状况。
+- 不建议用户伪造经历，只能建议补充真实经历、量化真实结果或改写表达。
 """.strip()
 
 
@@ -289,6 +456,10 @@ def get_llm_metadata() -> dict[str, Any]:
     }
 
 
+def get_llm_analysis_contract() -> dict[str, Any]:
+    return LLM_ANALYSIS_CONTRACT
+
+
 def build_advice_input(resume_text: str, job_text: str, analysis: dict[str, Any]) -> str:
     compact_analysis = {
         "rule_score": analysis.get("score"),
@@ -301,7 +472,12 @@ def build_advice_input(resume_text: str, job_text: str, analysis: dict[str, Any]
 
     return "\n\n".join(
         [
-            "请基于以下信息生成 AI 建议层结果。",
+            "请基于以下信息生成结构化 LLM 分析结果。",
+            "固定规则：rule_score 是唯一最终匹配分数，不要重算、覆盖或新增最终分数。",
+            "请对 JD 要求进行规范化，并给出重要程度 must_have / important / nice_to_have 与 1-5 权重。",
+            "请对简历证据给出 0-100 evidence_score，对缺口给出 0-100 gap_score。",
+            "【固定分析口径】",
+            json.dumps(LLM_ANALYSIS_CONTRACT, ensure_ascii=False, indent=2),
             "【岗位 JD】",
             job_text,
             "【简历文本】",

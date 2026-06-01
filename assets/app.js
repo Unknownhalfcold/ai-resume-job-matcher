@@ -781,6 +781,24 @@ function priorityText(priority) {
   return labels[priority] || priority;
 }
 
+function importanceText(importance) {
+  const labels = {
+    must_have: "硬性要求",
+    important: "重要要求",
+    nice_to_have: "加分项",
+  };
+  return labels[importance] || importance;
+}
+
+function impactText(impact) {
+  const labels = {
+    high: "高影响",
+    medium: "中影响",
+    low: "低影响",
+  };
+  return labels[impact] || impact;
+}
+
 function createAdviceCard(title, bodyItems) {
   const card = document.createElement("article");
   card.className = "ai-card";
@@ -811,16 +829,41 @@ function renderAiAdvice(response) {
 
   const summary = createAdviceCard("整体判断", [advice.summary]);
 
-  const focus = createAdviceCard(
-    "岗位核心要求",
-    advice.job_focus.map((item) => `${item.title}：${item.reason}（相关词：${item.related_keywords.join("、")}）`),
+  const normalizedJob = createAdviceCard(
+    "JD 规范化",
+    [
+      `岗位：${advice.normalized_job.role_title}`,
+      advice.normalized_job.jd_summary,
+      `核心职责：${advice.normalized_job.core_responsibilities.join("；")}`,
+    ],
+  );
+
+  const requirements = createAdviceCard(
+    "岗位要求重要程度",
+    advice.normalized_job.requirements.map(
+      (item) =>
+        `${importanceText(item.importance)}｜权重 ${item.weight}｜${item.title}：${item.reason}。期望证据：${item.evidence_expected}`,
+    ),
+  );
+
+  const rubric = createAdviceCard(
+    "LLM 评分口径",
+    advice.scoring_rubric.map((item) => `权重 ${item.weight}｜${item.dimension}：${item.what_good_looks_like}`),
   );
 
   const evidence = createAdviceCard(
-    "简历证据强度",
+    "简历证据强度量化",
     advice.evidence_review.map(
       (item) =>
-        `${item.title}｜${levelLabel(item.level)}：${item.resume_evidence}；缺口：${item.gap}；原因：${item.why_it_matters}`,
+        `${item.title}｜${importanceText(item.importance)}｜${levelLabel(item.level)}｜证据 ${item.evidence_score}/100｜置信度 ${item.confidence}/100：${item.resume_evidence}；缺口：${item.gap}；原因：${item.why_it_matters}`,
+    ),
+  );
+
+  const quantifiedGaps = createAdviceCard(
+    "Gap Evidence 量化",
+    advice.quantified_gaps.map(
+      (item) =>
+        `${item.requirement}｜${importanceText(item.importance)}｜缺口 ${item.gap_score}/100｜${impactText(item.impact_on_match)}：当前证据：${item.current_evidence}；缺失证据：${item.missing_evidence}；建议：${item.recommended_fix}`,
     ),
   );
 
@@ -836,7 +879,26 @@ function renderAiAdvice(response) {
     advice.rewrite_examples.map((item) => `Before：${item.before}\nAfter：${item.after}\n为什么更好：${item.why_better}`),
   );
 
-  elements.aiAdviceContent.append(summary, focus, evidence, actions, rewrites);
+  const contract = response.analysis_contract
+    ? createAdviceCard("分析边界", [
+        response.analysis_contract.final_score_policy,
+        `Evidence：${response.analysis_contract.evidence_score_scale}`,
+        `Gap：${response.analysis_contract.gap_score_scale}`,
+        response.analysis_contract.privacy_boundary,
+      ])
+    : null;
+
+  elements.aiAdviceContent.append(
+    summary,
+    normalizedJob,
+    requirements,
+    rubric,
+    evidence,
+    quantifiedGaps,
+    actions,
+    rewrites,
+    ...(contract ? [contract] : []),
+  );
 }
 
 function renderResultPage(result) {
