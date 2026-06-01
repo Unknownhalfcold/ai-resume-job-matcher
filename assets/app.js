@@ -4,9 +4,13 @@ const state = {
   apiBaseUrl: "",
   apiAvailable: false,
   llmConfigured: false,
+  authToken: "",
+  currentUser: null,
 };
 
 const BACKEND_TIMEOUT_MS = 900;
+const AUTH_TOKEN_STORAGE_KEY = "airjm_auth_token";
+const CLOUD_API_BASE_URL = window.APP_CONFIG?.apiBaseUrl || "";
 
 const SAMPLE_RESUME = `姓名：示例用户
 
@@ -87,6 +91,17 @@ const elements = {
   resumeFileStatus: document.querySelector("#resume-file-status"),
   jdFileStatus: document.querySelector("#jd-file-status"),
   resultPanel: document.querySelector("#result"),
+  authOpen: document.querySelector("#auth-open"),
+  authLogout: document.querySelector("#auth-logout"),
+  userChip: document.querySelector("#user-chip"),
+  authModal: document.querySelector("#auth-modal"),
+  authForm: document.querySelector("#auth-form"),
+  authClose: document.querySelector("#auth-close"),
+  authEmail: document.querySelector("#auth-email"),
+  authPassword: document.querySelector("#auth-password"),
+  authStatus: document.querySelector("#auth-status"),
+  authRegister: document.querySelector("#auth-register"),
+  authLogin: document.querySelector("#auth-login"),
 };
 
 const LLM_PROVIDER_PRESETS = {
@@ -134,6 +149,10 @@ function getApiBaseUrlCandidate() {
 
   if (explicitApiUrl) {
     return explicitApiUrl.replace(/\/$/, "");
+  }
+
+  if (CLOUD_API_BASE_URL) {
+    return CLOUD_API_BASE_URL.replace(/\/$/, "");
   }
 
   if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
@@ -374,6 +393,168 @@ async function fetchJsonWithTimeout(url, options = {}, timeoutMs = BACKEND_TIMEO
     return await response.json();
   } finally {
     window.clearTimeout(timeout);
+  }
+}
+
+function loadStoredAuthToken() {
+  try {
+    state.authToken = window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) || "";
+  } catch (error) {
+    state.authToken = "";
+  }
+}
+
+function setAuthToken(token) {
+  state.authToken = token || "";
+  try {
+    if (state.authToken) {
+      window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, state.authToken);
+    } else {
+      window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+    }
+  } catch (error) {
+    // localStorage can be unavailable in some privacy modes; auth still works for the current page.
+  }
+}
+
+function getAuthHeaders() {
+  return state.authToken ? { Authorization: `Bearer ${state.authToken}` } : {};
+}
+
+function setAuthStatus(message, stateName = "") {
+  elements.authStatus.textContent = message;
+  if (stateName) {
+    elements.authStatus.dataset.state = stateName;
+  } else {
+    elements.authStatus.removeAttribute("data-state");
+  }
+}
+
+function setAuthBusy(isBusy) {
+  elements.authLogin.disabled = isBusy;
+  elements.authRegister.disabled = isBusy;
+  elements.authClose.disabled = isBusy;
+}
+
+function updateAuthUi() {
+  const isSignedIn = Boolean(state.currentUser);
+  elements.authOpen.hidden = isSignedIn;
+  elements.userChip.hidden = !isSignedIn;
+  elements.authLogout.hidden = !isSignedIn;
+  elements.authOpen.disabled = !state.apiAvailable;
+
+  if (isSignedIn) {
+    elements.userChip.textContent = state.currentUser.email;
+  } else {
+    elements.userChip.textContent = "";
+    elements.authOpen.textContent = state.apiAvailable ? "登录 / 注册" : "登录需后端";
+  }
+}
+
+function openAuthModal() {
+  if (!state.apiAvailable) {
+    return;
+  }
+  elements.authModal.hidden = false;
+  setAuthStatus("密码至少 8 位。");
+  elements.authEmail.focus();
+}
+
+function closeAuthModal() {
+  elements.authModal.hidden = true;
+  elements.authForm.reset();
+  setAuthStatus("密码至少 8 位。");
+}
+
+async function submitAuth(mode) {
+  const email = elements.authEmail.value.trim();
+  const password = elements.authPassword.value;
+  const endpoint = mode === "register" ? "/api/auth/register" : "/api/auth/login";
+
+  if (!state.apiAvailable) {
+    setAuthStatus("后端 API 暂未连接，无法使用账户功能。", "error");
+    return;
+  }
+
+  if (!email || password.length < 8) {
+    setAuthStatus("请输入邮箱，并确保密码至少 8 位。", "error");
+    return;
+  }
+
+  setAuthBusy(true);
+  setAuthStatus(mode === "register" ? "正在创建账户..." : "正在登录...");
+
+  try {
+    const response = await fetchJsonWithTimeout(
+      `${state.apiBaseUrl}${endpoint}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email, password }),
+      },
+      8000,
+    );
+    setAuthToken(response.access_token);
+    state.currentUser = response.user;
+    setAuthStatus("登录成功。", "success");
+    updateAuthUi();
+    window.setTimeout(closeAuthModal, 420);
+  } catch (error) {
+    setAuthStatus(error.message, "error");
+  } finally {
+    setAuthBusy(false);
+  }
+}
+
+async function fetchCurrentUser() {
+  if (!state.apiAvailable || !state.authToken) {
+    state.currentUser = null;
+    updateAuthUi();
+    return;
+  }
+
+  try {
+    const response = await fetchJsonWithTimeout(
+      `${state.apiBaseUrl}/api/auth/me`,
+      {
+        headers: getAuthHeaders(),
+      },
+      8000,
+    );
+    state.currentUser = response.user;
+  } catch (error) {
+    state.currentUser = null;
+    setAuthToken("");
+  } finally {
+    updateAuthUi();
+  }
+}
+
+async function logoutCurrentUser() {
+  const token = state.authToken;
+  state.currentUser = null;
+  setAuthToken("");
+  updateAuthUi();
+
+  if (!state.apiAvailable || !token) {
+    return;
+  }
+
+  try {
+    await fetchJsonWithTimeout(
+      `${state.apiBaseUrl}/api/auth/logout`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+      8000,
+    );
+  } catch (error) {
+    console.warn(error);
   }
 }
 
@@ -973,6 +1154,7 @@ async function detectBackend() {
   if (!apiBaseUrl) {
     state.llmConfigured = false;
     elements.runtimeStatus.textContent = "Browser mode";
+    updateAuthUi();
     return;
   }
 
@@ -982,6 +1164,7 @@ async function detectBackend() {
     state.apiAvailable = health.status === "ok";
     state.llmConfigured = Boolean(health.llm_configured);
     elements.runtimeStatus.textContent = state.apiAvailable ? "API mode" : "Browser mode";
+    await fetchCurrentUser();
     if (state.lastResult) {
       updateAiAdviceAvailability();
       renderAiAdvicePlaceholder(
@@ -996,7 +1179,9 @@ async function detectBackend() {
     state.apiBaseUrl = "";
     state.apiAvailable = false;
     state.llmConfigured = false;
+    state.currentUser = null;
     elements.runtimeStatus.textContent = "Browser mode";
+    updateAuthUi();
   }
 }
 
@@ -1143,7 +1328,21 @@ function bindEvents() {
       if (!elements.inputAlert.hidden) {
         elements.inputAlert.hidden = true;
       }
+      if (!elements.authModal.hidden) {
+        closeAuthModal();
+      }
     }
+  });
+
+  elements.authOpen.addEventListener("click", openAuthModal);
+  elements.authClose.addEventListener("click", closeAuthModal);
+  elements.authLogout.addEventListener("click", logoutCurrentUser);
+  elements.authForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    submitAuth("login");
+  });
+  elements.authRegister.addEventListener("click", () => {
+    submitAuth("register");
   });
 
   elements.analyzeButton.addEventListener("click", async () => {
@@ -1280,9 +1479,11 @@ renderEmptyResult();
 elements.loadingPanel.hidden = true;
 elements.analyzeButton.disabled = true;
 elements.loadSampleButton.disabled = true;
+loadStoredAuthToken();
 applyProviderPreset(elements.llmProvider.value);
 bindEvents();
 showPage(getPageFromHash(), { push: false });
 syncAiModeUi();
+updateAuthUi();
 detectBackend();
 loadKeywords();

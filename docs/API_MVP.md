@@ -59,8 +59,61 @@ Invoke-RestMethod http://localhost:8001/health
 {
   "status": "ok",
   "engine": "rule_based",
-  "keyword_count": 16
+  "keyword_count": 16,
+  "database_type": "sqlite"
 }
+```
+
+## 账户接口
+
+当前账户系统用于打通数据库和后续用户历史记录。密码不会明文保存，后端只保存密码哈希。
+
+注册：
+
+```text
+POST /api/auth/register
+```
+
+登录：
+
+```text
+POST /api/auth/login
+```
+
+请求示例：
+
+```json
+{
+  "email": "user@example.com",
+  "password": "password123"
+}
+```
+
+返回示例：
+
+```json
+{
+  "access_token": "...",
+  "token_type": "bearer",
+  "user": {
+    "id": 1,
+    "email": "user@example.com"
+  }
+}
+```
+
+查看当前用户：
+
+```text
+GET /api/auth/me
+Authorization: Bearer <access_token>
+```
+
+退出：
+
+```text
+POST /api/auth/logout
+Authorization: Bearer <access_token>
 ```
 
 ## 分析接口
@@ -162,8 +215,10 @@ $env:LLM_MODEL="deepseek-v4-flash"
 - `rule_score`
 - `rule_score_source`
 - `advice.summary`
-- `advice.job_focus`
+- `advice.normalized_job`
+- `advice.scoring_rubric`
 - `advice.evidence_review`
+- `advice.quantified_gaps`
 - `advice.top_actions`
 - `advice.rewrite_examples`
 

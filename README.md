@@ -27,13 +27,15 @@ AI Resume Job Matcher 是一个简历与岗位匹配度分析工具。
 - 在配置 API Key 后生成 LLM 个性化建议
 - LLM 建议层采用固定 schema，输出 JD 规范化、要求重要程度、量化证据和 gap evidence
 - 支持用户自带 API Key 的 BYOK 模式
+- 提供基础用户注册、登录和 session token
+- 支持本地 SQLite 与云端 Postgres 数据库
 - 提供网页交互界面
 - 提供 FastAPI 后端接口
 - 支持文本报告与 JSON 输出
 
 ## 当前版本范围
 
-当前 Web 版本支持直接粘贴简历和岗位 JD 进行分析；Python 版本支持本地文本文件输入。当前版本不依赖数据库。LLM 建议层为可选能力，只有配置后端环境变量 `LLM_API_KEY` 或 `OPENAI_API_KEY` 后才会调用外部 AI API。
+当前 Web 版本支持直接粘贴简历和岗位 JD 进行分析；Python 版本支持本地文本文件输入。后端已经加入基础账户系统，未设置 `DATABASE_URL` 时使用本地 SQLite，云端部署时建议连接 Postgres。LLM 建议层为可选能力，只有配置后端环境变量 `LLM_API_KEY` 或 `OPENAI_API_KEY` 后才会调用外部 AI API。
 
 已完成：
 
@@ -50,14 +52,16 @@ AI Resume Job Matcher 是一个简历与岗位匹配度分析工具。
 - JD 截图 OCR 输入
 - 三段式页面流程和加载进度
 - 可选 LLM 建议层接口
+- 基础用户注册、登录、退出和当前用户接口
+- 数据库连接层和 Render 部署配置
 - 产品需求、评分逻辑和路线图文档
 
 暂未包含：
 
-- 用户账号
-- 数据库存储
+- 邮箱验证码和找回密码
+- 分析历史保存
 - 扫描版 PDF OCR
-- 线上后端部署
+- 已完成的云端服务实例
 
 ## 快速运行
 
@@ -156,8 +160,12 @@ py -X utf8 scripts/analyze_match.py --resume local_inputs/my_resume.txt --job lo
 - `assets/app.js`：浏览器端匹配逻辑
 - `data/keywords.json`：共享关键词配置
 - `api/server.py`：FastAPI 后端接口
+- `api/database.py`：数据库连接和用户/session 表
+- `api/auth_service.py`：注册、登录、密码哈希和 token 管理
 - `api/document_parser.py`：DOCX/PDF 文本提取
 - `api/llm_advisor.py`：LLM 建议层
+- `.env.example`：本地和云端环境变量示例
+- `render.yaml`：Render 云端部署配置
 - `requirements.txt`：后端依赖
 - `scripts/analyze_match.py`：简历岗位匹配分析脚本
 - `examples/resume_sample.txt`：示例简历
@@ -167,14 +175,15 @@ py -X utf8 scripts/analyze_match.py --resume local_inputs/my_resume.txt --job lo
 - `docs/PYTHON_DEMO.md`：Python MVP 运行说明
 - `docs/WEB_MVP.md`：Web MVP 运行说明
 - `docs/API_MVP.md`：API MVP 运行说明
+- `docs/DEPLOYMENT.md`：云端部署说明
 - `docs/INPUT_EXTRACTION.md`：文档与截图输入说明
 - `docs/LLM_ADVICE.md`：LLM 建议层说明
 - `docs/ROADMAP.md`：产品路线图
 
 ## 后续路线
 
-1. 扩展关键词库和评分可解释性
-2. 扩展更多岗位方向的关键词库
-3. 扩展 LLM 建议层的证据判断和改写质量
-4. 增加 PDF/DOCX 简历解析能力
-5. 在需要保存历史记录时引入数据库
+1. 将 FastAPI 后端部署到 Render
+2. 将云端后端连接到 Neon Postgres
+3. 把 GitHub Pages 前端默认 API 地址指向云端后端
+4. 增加分析历史保存和用户额度控制
+5. 扩展关键词库和 LLM 建议质量

@@ -1,13 +1,24 @@
 from __future__ import annotations
 
 import os
+from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
+from api.auth_service import (
+    authenticate_user,
+    create_access_token,
+    create_user,
+    get_bearer_token,
+    require_current_user,
+    revoke_access_token,
+)
+from api.database import User, get_database_metadata, get_database_session, initialize_database
 from api.document_parser import DocumentParseError, extract_resume_text
 from api.llm_advisor import (
     LLMConfigurationError,
@@ -46,8 +57,19 @@ class AISuggestionsRequest(AnalyzeRequest):
     llm_config: LLMRequestConfig | None = None
 
 
+class AuthRequest(BaseModel):
+    email: str = Field(..., min_length=3, max_length=320)
+    password: str = Field(..., min_length=8, max_length=128)
+
+
 class UTF8JSONResponse(JSONResponse):
     media_type = "application/json; charset=utf-8"
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    initialize_database()
+    yield
 
 
 def get_allowed_origins() -> list[str]:
@@ -62,6 +84,7 @@ app = FastAPI(
     version="0.1.0",
     description="Rule-based backend API for resume-job matching analysis.",
     default_response_class=UTF8JSONResponse,
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -69,11 +92,27 @@ app.add_middleware(
     allow_origins=get_allowed_origins(),
     allow_credentials=False,
     allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 KEYWORDS = load_keywords()
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+
+
+def serialize_user(user: User) -> dict[str, Any]:
+    return {
+        "id": user.id,
+        "email": user.email,
+        "created_at": user.created_at.isoformat(),
+        "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
+    }
+
+
+def current_user_dependency(
+    authorization: str | None = Header(default=None),
+    session: Session = Depends(get_database_session),
+) -> User:
+    return require_current_user(session, authorization)
 
 
 @app.get("/health")
@@ -82,6 +121,7 @@ def health() -> dict[str, Any]:
         "status": "ok",
         "engine": "rule_based",
         "keyword_count": len(KEYWORDS),
+        **get_database_metadata(),
         **get_llm_metadata(),
     }
 
@@ -100,6 +140,53 @@ def keywords() -> dict[str, Any]:
             for keyword in KEYWORDS
         ]
     }
+
+
+@app.post("/api/auth/register")
+def register(payload: AuthRequest, session: Session = Depends(get_database_session)) -> dict[str, Any]:
+    try:
+        user = create_user(session, payload.email, payload.password)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    access_token = create_access_token(session, user)
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": serialize_user(user),
+    }
+
+
+@app.post("/api/auth/login")
+def login(payload: AuthRequest, session: Session = Depends(get_database_session)) -> dict[str, Any]:
+    user = authenticate_user(session, payload.email, payload.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Email or password is incorrect.")
+
+    access_token = create_access_token(session, user)
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": serialize_user(user),
+    }
+
+
+@app.get("/api/auth/me")
+def me(current_user: User = Depends(current_user_dependency)) -> dict[str, Any]:
+    return {
+        "user": serialize_user(current_user),
+    }
+
+
+@app.post("/api/auth/logout")
+def logout(
+    authorization: str | None = Header(default=None),
+    session: Session = Depends(get_database_session),
+) -> dict[str, Any]:
+    if authorization:
+        token = get_bearer_token(authorization)
+        revoke_access_token(session, token)
+    return {"ok": True}
 
 
 @app.post("/api/analyze")

@@ -77,21 +77,30 @@ py -X utf8 scripts/analyze_match.py
 - 本地前端可自动切换 API 模式
 - 提供可选 `/api/ai-suggestions` 接口
 - 前端支持展示 AI 建议层结果
+- LLM 建议层采用固定 schema 输出 JD 规范化、证据强度和 gap evidence
 
 计划内容：
 
 - 使用真实简历和 JD 校验 LLM 建议质量
-- 优化提示词和结构化输出 schema
 - 增加更多岗位方向的测试样例
 - 使用后端服务保护 API 凭证
 
 ## 阶段 6：部署与作品包装
 
-状态：计划中
+状态：进行中
+
+已完成：
+
+- 增加基础用户注册、登录、退出接口
+- 增加数据库连接层，支持本地 SQLite 与云端 Postgres
+- 增加 Render 部署配置 `render.yaml`
+- 增加云端部署文档
 
 计划内容：
 
-- 根据最终架构部署公开 Demo
+- 部署 Render 后端服务
+- 创建 Neon Postgres 数据库并配置 `DATABASE_URL`
+- 将 GitHub Pages 前端连接到云端 API
 - 在 README 中加入产品截图或演示动图
 - 补充项目案例说明
 - 整理可写入简历的项目描述

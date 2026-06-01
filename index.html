@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>AI Resume Job Matcher</title>
-    <link rel="stylesheet" href="assets/styles.css?v=9">
+    <link rel="stylesheet" href="assets/styles.css?v=10">
   </head>
   <body>
     <header class="topbar">
@@ -19,6 +19,11 @@
         <a href="docs/scoring.html">Scoring</a>
         <a href="https://github.com/Unknownhalfcold/ai-resume-job-matcher">GitHub</a>
       </nav>
+      <div class="auth-controls" aria-label="Account">
+        <button class="button ghost auth-open" id="auth-open" type="button" disabled>登录 / 注册</button>
+        <span class="user-chip" id="user-chip" hidden></span>
+        <button class="button ghost" id="auth-logout" type="button" hidden>退出</button>
+      </div>
     </header>
 
     <main class="page-shell">
@@ -42,7 +47,7 @@
           </div>
 
           <div class="version-strip" aria-label="版本状态">
-            <span>v0.5</span>
+            <span>v0.6</span>
             <span id="runtime-status">Browser mode</span>
           </div>
         </div>
@@ -283,7 +288,33 @@
       </div>
     </div>
 
+    <div class="dialog-modal" id="auth-modal" hidden>
+      <form class="dialog-card auth-card" id="auth-form" aria-labelledby="auth-title">
+        <div class="auth-heading">
+          <div>
+            <p class="eyebrow">Account</p>
+            <h2 id="auth-title">登录或创建账户</h2>
+          </div>
+          <button class="button ghost" id="auth-close" type="button">关闭</button>
+        </div>
+        <p class="auth-copy">账户系统用于后续保存分析历史和控制 AI 使用额度。当前版本不会默认保存你的简历原文。</p>
+        <label class="field">
+          <span>Email</span>
+          <input id="auth-email" type="email" autocomplete="email" required>
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <input id="auth-password" type="password" autocomplete="current-password" minlength="8" required>
+        </label>
+        <p class="auth-status" id="auth-status">密码至少 8 位。</p>
+        <div class="dialog-actions split-actions">
+          <button class="button secondary" id="auth-register" type="button">注册</button>
+          <button class="button primary" id="auth-login" type="submit">登录</button>
+        </div>
+      </form>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script src="assets/app.js?v=9"></script>
+    <script src="assets/app.js?v=10"></script>
   </body>
 </html>

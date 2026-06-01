@@ -1,6 +1,8 @@
 fastapi
 openai
+psycopg[binary]
 PyMuPDF
 python-docx
 python-multipart
+SQLAlchemy
 uvicorn[standard]

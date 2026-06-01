@@ -1,0 +1,173 @@
+# Cloud Deployment
+
+本阶段目标：让 GitHub Pages 前端连接云端 FastAPI 后端，并用数据库保存基础账户数据。
+
+## 当前架构
+
+```text
+GitHub Pages 前端
+  ↓
+Render FastAPI 后端
+  ↓
+Neon Postgres 数据库
+  ↓
+可选：第三方 LLM API
+```
+
+## 新增概念
+
+- `数据库`：网站的长期记忆。当前先保存用户邮箱、密码哈希和登录 session。
+- `密码哈希`：不是保存真实密码，而是保存不可逆的密码指纹。
+- `Postgres`：真实网站常用的关系型数据库。
+- `DATABASE_URL`：后端连接数据库用的地址，属于密钥，不要写进 GitHub。
+- `CORS`：浏览器安全规则。它决定 GitHub Pages 前端是否能请求你的云端 API。
+
+## 本地运行
+
+如果没有设置 `DATABASE_URL`，后端会自动使用本地 SQLite 文件 `local_app.db`。
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m uvicorn api.server:app --reload --port 8001
+```
+
+测试健康检查：
+
+```powershell
+Invoke-RestMethod http://localhost:8001/health
+```
+
+你应该能看到：
+
+```json
+{
+  "status": "ok",
+  "database_type": "sqlite"
+}
+```
+
+## 账户接口
+
+注册：
+
+```text
+POST /api/auth/register
+```
+
+登录：
+
+```text
+POST /api/auth/login
+```
+
+查看当前用户：
+
+```text
+GET /api/auth/me
+Authorization: Bearer <access_token>
+```
+
+退出：
+
+```text
+POST /api/auth/logout
+Authorization: Bearer <access_token>
+```
+
+## 部署步骤
+
+### 1. 创建 Neon Postgres
+
+1. 打开 Neon Dashboard。
+2. 创建一个 Postgres project。
+3. 点击 `Connect`。
+4. 复制连接字符串，形状类似：
+
+```text
+postgresql://user:password@host/dbname?sslmode=require
+```
+
+这串地址后面会放进 Render 的 `DATABASE_URL` 环境变量。
+
+### 2. 创建 Render Web Service
+
+可以用两种方式：
+
+方式 A：用 `render.yaml`
+
+1. 把本仓库推送到 GitHub。
+2. 打开 Render Dashboard。
+3. New → Blueprint。
+4. 选择这个 GitHub repository。
+5. Render 会读取根目录的 `render.yaml`。
+6. 填入 `DATABASE_URL` 等 `sync: false` 的密钥。
+
+方式 B：手动创建 Web Service
+
+1. New → Web Service。
+2. 选择 GitHub 仓库。
+3. Build Command：
+
+```text
+pip install -r requirements.txt
+```
+
+4. Start Command：
+
+```text
+uvicorn api.server:app --host 0.0.0.0 --port $PORT
+```
+
+### 3. 配置 Render 环境变量
+
+必填：
+
+```text
+DATABASE_URL=<Neon connection string>
+ALLOWED_ORIGINS=https://unknownhalfcold.github.io,http://localhost:8000,http://127.0.0.1:8000
+AUTH_TOKEN_TTL_DAYS=14
+```
+
+可选，启用默认 LLM：
+
+```text
+LLM_PROVIDER=deepseek
+LLM_API_STYLE=chat_completions
+LLM_BASE_URL=https://api.deepseek.com
+LLM_API_KEY=<your api key>
+LLM_MODEL=deepseek-v4-flash
+```
+
+### 4. 测试云端后端
+
+部署完成后，打开：
+
+```text
+https://你的-render-service.onrender.com/health
+```
+
+如果成功，会看到：
+
+```json
+{
+  "status": "ok",
+  "database_type": "postgres"
+}
+```
+
+### 5. 让 GitHub Pages 连接云端 API
+
+临时测试可以这样打开：
+
+```text
+https://unknownhalfcold.github.io/ai-resume-job-matcher/?api=https://你的-render-service.onrender.com
+```
+
+确认可用后，再把 `assets/app.js` 顶部的 `CLOUD_API_BASE_URL` 设置为你的 Render 地址，这样用户不需要手动加 `?api=`。
+
+## 重要限制
+
+- 当前账户系统是 MVP：没有邮箱验证码、找回密码、会员额度和支付。
+- 当前不默认保存简历原文，降低隐私风险。
+- 生产环境建议把前端 token 改成后端 `HttpOnly Cookie`。
+- Render 免费 Web Service 会休眠，第一次访问可能需要等待。
