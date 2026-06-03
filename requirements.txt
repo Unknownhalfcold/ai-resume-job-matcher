@@ -1,4 +1,5 @@
 fastapi
+json-repair
 openai
 psycopg[binary]
 PyMuPDF

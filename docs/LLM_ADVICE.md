@@ -29,6 +29,7 @@ LLM 层负责个性化建议
 输出会包含：
 
 - `normalized_job`：规范化后的岗位标题、职责、岗位要求和重要程度。
+- `normalized_job.technical_questions`：JD 中出现的技术性问题及其考察能力。
 - `scoring_rubric`：LLM 对岗位能力维度的解释口径。
 - `evidence_review`：简历对每个要求的证据强度。
 - `quantified_gaps`：量化后的 gap evidence。
@@ -69,6 +70,21 @@ POST /api/ai-suggestions
   }
 }
 ```
+
+## JD OCR 清洗接口
+
+```text
+POST /api/normalize/job
+```
+
+这个接口用于处理截图 OCR 或网页复制产生的混杂文本。它不会直接读取图片，而是接收 OCR 后的文字，并输出结构化 JD：
+
+- `cleaned_job_text`：清洗后的岗位 JD
+- `role_title`：岗位名称
+- `core_requirements`：核心要求
+- `technical_questions`：技术性问题
+- `removed_noise_summary`：删除了哪些噪音
+- `confidence`：清洗置信度
 
 返回示例结构：
 

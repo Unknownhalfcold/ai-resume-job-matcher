@@ -26,6 +26,7 @@ from api.llm_advisor import (
     get_llm_analysis_contract,
     get_llm_config,
     get_llm_metadata,
+    normalize_job_text,
 )
 from scripts.analyze_match import analyze, load_keywords
 
@@ -54,6 +55,11 @@ class LLMRequestConfig(BaseModel):
 
 class AISuggestionsRequest(AnalyzeRequest):
     analysis: dict[str, Any] | None = None
+    llm_config: LLMRequestConfig | None = None
+
+
+class JobNormalizationRequest(BaseModel):
+    raw_text: str = Field(..., min_length=1, max_length=20000)
     llm_config: LLMRequestConfig | None = None
 
 
@@ -215,6 +221,27 @@ async def extract_resume(file: UploadFile = File(...)) -> dict[str, Any]:
         "text": text,
         "character_count": len(text),
         "warnings": warnings,
+    }
+
+
+@app.post("/api/normalize/job")
+def normalize_job(payload: JobNormalizationRequest) -> dict[str, Any]:
+    config_override = payload.llm_config.model_dump(exclude_none=True) if payload.llm_config else None
+    llm_config = get_llm_config(config_override)
+
+    try:
+        normalized = normalize_job_text(payload.raw_text, config_override=config_override)
+    except LLMConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"LLM JD normalization failed: {exc}") from exc
+
+    return {
+        "engine": "llm_job_normalizer",
+        "provider": llm_config.provider,
+        "model": llm_config.model,
+        "api_style": llm_config.api_style,
+        "normalized_job": normalized,
     }
 
 

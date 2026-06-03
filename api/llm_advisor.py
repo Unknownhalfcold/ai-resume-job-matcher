@@ -57,6 +57,14 @@ class JobRequirementItem(BaseModel):
     evidence_expected: str
 
 
+class TechnicalQuestionItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question: str
+    skill_area: str
+    expected_evidence: str
+
+
 class NormalizedJobPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -64,6 +72,7 @@ class NormalizedJobPayload(BaseModel):
     jd_summary: str
     core_responsibilities: list[str] = Field(min_length=2, max_length=6)
     requirements: list[JobRequirementItem] = Field(min_length=3, max_length=8)
+    technical_questions: list[TechnicalQuestionItem] = Field(max_length=6)
 
 
 class ScoringRubricItem(BaseModel):
@@ -128,6 +137,17 @@ class AdvicePayload(BaseModel):
     rewrite_examples: list[RewriteExampleItem] = Field(min_length=1, max_length=3)
 
 
+class JobNormalizationPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cleaned_job_text: str
+    role_title: str
+    core_requirements: list[str] = Field(max_length=8)
+    technical_questions: list[TechnicalQuestionItem] = Field(max_length=6)
+    removed_noise_summary: str
+    confidence: int = Field(ge=0, le=100)
+
+
 ADVICE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
@@ -148,7 +168,7 @@ ADVICE_SCHEMA: dict[str, Any] = {
         "normalized_job": {
             "type": "object",
             "additionalProperties": False,
-            "required": ["role_title", "jd_summary", "core_responsibilities", "requirements"],
+            "required": ["role_title", "jd_summary", "core_responsibilities", "requirements", "technical_questions"],
             "properties": {
                 "role_title": {"type": "string"},
                 "jd_summary": {"type": "string"},
@@ -187,6 +207,20 @@ ADVICE_SCHEMA: dict[str, Any] = {
                             },
                             "reason": {"type": "string"},
                             "evidence_expected": {"type": "string"},
+                        },
+                    },
+                },
+                "technical_questions": {
+                    "type": "array",
+                    "maxItems": 6,
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["question", "skill_area", "expected_evidence"],
+                        "properties": {
+                            "question": {"type": "string"},
+                            "skill_area": {"type": "string"},
+                            "expected_evidence": {"type": "string"},
                         },
                     },
                 },
@@ -328,6 +362,54 @@ ADVICE_SCHEMA: dict[str, Any] = {
     },
 }
 
+JOB_NORMALIZATION_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "cleaned_job_text",
+        "role_title",
+        "core_requirements",
+        "technical_questions",
+        "removed_noise_summary",
+        "confidence",
+    ],
+    "properties": {
+        "cleaned_job_text": {
+            "type": "string",
+            "description": "Only useful JD content. Remove navigation, buttons, company intro, benefits, ads, recommendations and unrelated page text.",
+        },
+        "role_title": {
+            "type": "string",
+            "description": "Inferred role title. Empty string if unknown.",
+        },
+        "core_requirements": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {"type": "string"},
+        },
+        "technical_questions": {
+            "type": "array",
+            "maxItems": 6,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["question", "skill_area", "expected_evidence"],
+                "properties": {
+                    "question": {"type": "string"},
+                    "skill_area": {"type": "string"},
+                    "expected_evidence": {"type": "string"},
+                },
+            },
+        },
+        "removed_noise_summary": {"type": "string"},
+        "confidence": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+        },
+    },
+}
+
 
 SYSTEM_INSTRUCTIONS = """
 你是一个面向中文求职者的 AI 简历优化顾问。
@@ -335,12 +417,13 @@ SYSTEM_INSTRUCTIONS = """
 你的任务：
 1. 基于输入的岗位 JD、简历文本和规则匹配结果，生成结构化分析。
 2. 将 JD 规范化为岗位标题、职责、要求、重要程度和 1-5 权重。
-3. 对简历证据进行量化：evidence_score 为 0-100，confidence 为 0-100。
-4. 对 gap evidence 进行量化：gap_score 为 0-100，分数越高表示缺口越严重。
-5. 不要修改、重算或质疑 rule_score，最终匹配分数由规则层负责。
-6. 不要编造用户没有提供的经历、公司、数字、证书或结果。
-7. 如果简历缺少证据，请明确指出“需要补充”，不要替用户虚构。
-8. 输出必须是符合 schema 的中文 JSON。
+3. 如果 JD 中包含技术性问题或问答题，将它们单独放入 technical_questions，并说明考察能力和期望简历证据。
+4. 对简历证据进行量化：evidence_score 为 0-100，confidence 为 0-100。
+5. 对 gap evidence 进行量化：gap_score 为 0-100，分数越高表示缺口越严重。
+6. 不要修改、重算或质疑 rule_score，最终匹配分数由规则层负责。
+7. 不要编造用户没有提供的经历、公司、数字、证书或结果。
+8. 如果简历缺少证据，请明确指出“需要补充”，不要替用户虚构。
+9. 输出必须是符合 schema 的中文 JSON。
 
 评分稳定性原则：
 - 规则匹配层负责稳定分数。
@@ -356,6 +439,21 @@ SYSTEM_INSTRUCTIONS = """
 - 只分析用户提供的简历和 JD 文本，不访问、不抓取、不推断第三方网站内容。
 - 不输出与岗位无关的个人敏感评价，例如年龄、性别、民族、婚育、健康状况。
 - 不建议用户伪造经历，只能建议补充真实经历、量化真实结果或改写表达。
+""".strip()
+
+JOB_NORMALIZATION_INSTRUCTIONS = """
+你是一个中文招聘 JD 文本清洗助手。
+
+任务：
+1. 输入可能来自截图 OCR，里面可能混有网页导航、按钮、公司介绍、福利、推荐职位和广告。
+2. 只保留和目标岗位直接相关的内容：岗位名称、岗位职责、任职要求、技能要求、技术问题。
+3. 如果 JD 中出现技术问答题，例如“你如何理解 RAG”，不要删除，要放入 technical_questions。
+4. 不要补写原文没有的信息，不要编造公司、薪资、学历或技能要求。
+5. 输出必须是符合 schema 的中文 JSON。
+
+清洗边界：
+- 删除：登录、注册、分享、收藏、立即申请、投递简历、公司介绍、福利待遇、地址、推荐职位等无关内容。
+- 保留：职责、要求、技能、经验、学历、工具、技术问题、项目要求。
 """.strip()
 
 
@@ -499,6 +597,30 @@ def build_chat_prompt(resume_text: str, job_text: str, analysis: dict[str, Any])
     )
 
 
+def build_job_normalization_input(raw_text: str) -> str:
+    return "\n\n".join(
+        [
+            "请从以下 OCR 或网页复制文本中提取真正的岗位 JD。",
+            "保留岗位标题、岗位职责、任职要求、技能要求和技术问题。",
+            "删除网页噪音、按钮、导航、福利、公司介绍、推荐职位和广告。",
+            "如果没有足够 JD 信息，cleaned_job_text 返回尽可能少的可靠内容，并降低 confidence。",
+            "【原始文本】",
+            raw_text,
+        ]
+    )
+
+
+def build_job_normalization_chat_prompt(raw_text: str) -> str:
+    return "\n\n".join(
+        [
+            build_job_normalization_input(raw_text),
+            "请只返回 JSON 对象，不要使用 Markdown，不要包裹 ```json 代码块。",
+            "JSON 必须符合以下 schema：",
+            json.dumps(JOB_NORMALIZATION_SCHEMA, ensure_ascii=False, indent=2),
+        ]
+    )
+
+
 def create_openai_client(config: LLMConfig) -> Any:
     try:
         from openai import OpenAI
@@ -510,6 +632,52 @@ def create_openai_client(config: LLMConfig) -> Any:
     return OpenAI(api_key=config.api_key)
 
 
+def extract_balanced_json_object(text: str) -> str | None:
+    start = text.find("{")
+    if start < 0:
+        return None
+
+    depth = 0
+    in_string = False
+    escaped = False
+
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : index + 1]
+
+    return None
+
+
+def try_repair_json(text: str) -> dict[str, Any] | None:
+    try:
+        from json_repair import repair_json
+    except ImportError:
+        return None
+
+    try:
+        repaired = repair_json(text, return_objects=True)
+    except Exception:
+        return None
+
+    return repaired if isinstance(repaired, dict) else None
+
+
 def parse_json_object(raw_text: str) -> dict[str, Any]:
     text = raw_text.strip()
     if text.startswith("```"):
@@ -518,11 +686,21 @@ def parse_json_object(raw_text: str) -> dict[str, Any]:
 
     try:
         return json.loads(text)
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", text, flags=re.DOTALL)
-        if not match:
-            raise LLMResponseError("Model did not return a JSON object.")
-        return json.loads(match.group(0))
+    except json.JSONDecodeError as exc:
+        balanced_text = extract_balanced_json_object(text)
+        if balanced_text:
+            try:
+                return json.loads(balanced_text)
+            except json.JSONDecodeError:
+                repaired = try_repair_json(balanced_text)
+                if repaired is not None:
+                    return repaired
+
+        repaired = try_repair_json(text)
+        if repaired is not None:
+            return repaired
+
+        raise LLMResponseError(f"Model did not return valid JSON: {exc}") from exc
 
 
 def validate_advice(raw_advice: dict[str, Any]) -> dict[str, Any]:
@@ -530,6 +708,13 @@ def validate_advice(raw_advice: dict[str, Any]) -> dict[str, Any]:
         return AdvicePayload.model_validate(raw_advice).model_dump()
     except ValidationError as exc:
         raise LLMResponseError(f"Model returned invalid advice JSON: {exc}") from exc
+
+
+def validate_job_normalization(raw_payload: dict[str, Any]) -> dict[str, Any]:
+    try:
+        return JobNormalizationPayload.model_validate(raw_payload).model_dump()
+    except ValidationError as exc:
+        raise LLMResponseError(f"Model returned invalid JD normalization JSON: {exc}") from exc
 
 
 def generate_with_responses_api(
@@ -592,6 +777,62 @@ def generate_with_chat_completions(
     return validate_advice(parse_json_object(content))
 
 
+def normalize_job_with_responses_api(
+    client: Any,
+    config: LLMConfig,
+    raw_text: str,
+) -> dict[str, Any]:
+    response = client.responses.create(
+        model=config.model,
+        instructions=JOB_NORMALIZATION_INSTRUCTIONS,
+        input=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": build_job_normalization_input(raw_text),
+                    }
+                ],
+            }
+        ],
+        text={
+            "format": {
+                "type": "json_schema",
+                "name": "job_normalization",
+                "schema": JOB_NORMALIZATION_SCHEMA,
+                "strict": True,
+            }
+        },
+        max_output_tokens=min(config.max_output_tokens, 1400),
+    )
+
+    return validate_job_normalization(json.loads(response.output_text))
+
+
+def normalize_job_with_chat_completions(
+    client: Any,
+    config: LLMConfig,
+    raw_text: str,
+) -> dict[str, Any]:
+    response = client.chat.completions.create(
+        model=config.model,
+        messages=[
+            {"role": "system", "content": JOB_NORMALIZATION_INSTRUCTIONS},
+            {"role": "user", "content": build_job_normalization_chat_prompt(raw_text)},
+        ],
+        response_format={"type": "json_object"},
+        temperature=0,
+        max_tokens=min(config.max_output_tokens, 1400),
+    )
+
+    content = response.choices[0].message.content
+    if not isinstance(content, str) or not content.strip():
+        raise LLMResponseError("Model returned empty JD normalization content.")
+
+    return validate_job_normalization(parse_json_object(content))
+
+
 def generate_advice(
     resume_text: str,
     job_text: str,
@@ -608,3 +849,19 @@ def generate_advice(
         return generate_with_chat_completions(client, config, resume_text, job_text, analysis)
 
     return generate_with_responses_api(client, config, resume_text, job_text, analysis)
+
+
+def normalize_job_text(
+    raw_text: str,
+    config_override: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    config = get_llm_config(config_override)
+    if not config.api_key:
+        raise LLMConfigurationError("LLM_API_KEY or OPENAI_API_KEY is not configured.")
+
+    client = create_openai_client(config)
+
+    if config.api_style == "chat_completions":
+        return normalize_job_with_chat_completions(client, config, raw_text)
+
+    return normalize_job_with_responses_api(client, config, raw_text)

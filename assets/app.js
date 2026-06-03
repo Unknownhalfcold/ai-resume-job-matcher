@@ -266,7 +266,19 @@ function isImageFile(file) {
 
 function findClipboardFile(event, matcher) {
   const files = [...(event.clipboardData?.files || [])];
-  return files.find(matcher) || null;
+  const file = files.find(matcher);
+  if (file) return file;
+
+  const items = [...(event.clipboardData?.items || [])];
+  for (const item of items) {
+    if (item.kind !== "file") continue;
+    const itemFile = item.getAsFile();
+    if (itemFile && matcher(itemFile)) {
+      return itemFile;
+    }
+  }
+
+  return null;
 }
 
 function findDroppedFile(event, matcher) {
@@ -351,6 +363,21 @@ function applyCleanedJobText(rawText, sourceLabel = "JD 文本") {
   }
 }
 
+function applyNormalizedJobText(response, sourceLabel = "JD 文本") {
+  const normalized = response.normalized_job;
+  const cleaned = normalized?.cleaned_job_text?.trim();
+  if (!cleaned) {
+    throw new Error("LLM 没有提取到可靠 JD 内容。");
+  }
+
+  elements.jobInput.value = cleaned;
+  const questionCount = normalized.technical_questions?.length || 0;
+  const roleText = normalized.role_title ? `${normalized.role_title} · ` : "";
+  const detail = `${roleText}置信度 ${normalized.confidence}/100${questionCount ? ` · 技术问题 ${questionCount} 个` : ""}`;
+  setInputStatus("jd", `${sourceLabel}已智能提取`, detail);
+  elements.runNote.textContent = "已用 LLM 从 OCR 文本中提取 JD";
+}
+
 async function handleResumeFile(file, source = "上传") {
   showLoading("正在读取简历文件");
   updateProgress(18, "上传简历", "正在提取 Word/PDF 中的文本");
@@ -385,9 +412,19 @@ async function handleJdImage(file, source = "上传") {
     if (!text) {
       throw new Error("截图中没有识别到文字，请换一张更清晰的截图，或直接粘贴 JD 文本。");
     }
-    applyCleanedJobText(text, source === "粘贴" ? "粘贴截图" : "JD 截图");
+    if (state.apiAvailable && state.llmConfigured) {
+      try {
+        updateProgress(92, "LLM 清洗 JD", "正在从 OCR 文本中提取岗位职责和要求");
+        const normalized = await normalizeJobTextViaApi(text);
+        applyNormalizedJobText(normalized, source === "粘贴" ? "粘贴截图" : "JD 截图");
+      } catch (normalizationError) {
+        applyCleanedJobText(text, source === "粘贴" ? "粘贴截图" : "JD 截图");
+        elements.runNote.textContent = `LLM 清洗失败，已使用规则清洗：${normalizationError.message}`;
+      }
+    } else {
+      applyCleanedJobText(text, source === "粘贴" ? "粘贴截图" : "JD 截图");
+    }
     updateProgress(100, "JD 已识别", `已提取 ${text.length} 个字符`);
-    setInputStatus("jd", "JD 截图已导入", normalizeFileName(file, source === "粘贴" ? "剪贴板截图" : "截图文件"));
   } catch (error) {
     elements.runNote.textContent = error.message;
     updateProgress(100, "OCR 失败", error.message);
@@ -726,6 +763,22 @@ async function extractTextFromJdImage(file) {
   return result.data.text.trim();
 }
 
+async function normalizeJobTextViaApi(rawText) {
+  return fetchJsonWithTimeout(
+    `${state.apiBaseUrl}/api/normalize/job`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        raw_text: rawText,
+      }),
+    },
+    45000,
+  );
+}
+
 function hasUserLlmKey() {
   return Boolean(elements.llmApiKey.value.trim());
 }
@@ -1045,6 +1098,9 @@ function renderAiAdvice(response) {
       `岗位：${advice.normalized_job.role_title}`,
       advice.normalized_job.jd_summary,
       `核心职责：${advice.normalized_job.core_responsibilities.join("；")}`,
+      advice.normalized_job.technical_questions?.length
+        ? `技术问题：${advice.normalized_job.technical_questions.map((item) => `${item.question}（${item.skill_area}）`).join("；")}`
+        : "技术问题：未识别到单独技术问答",
     ],
   );
 

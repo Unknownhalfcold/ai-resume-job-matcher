@@ -222,6 +222,37 @@ $env:LLM_MODEL="deepseek-v4-flash"
 - `advice.top_actions`
 - `advice.rewrite_examples`
 
+## LLM JD 清洗接口
+
+接口：
+
+```text
+POST /api/normalize/job
+```
+
+用途：
+
+- 接收 OCR 或网页复制得到的混杂文本
+- 删除按钮、导航、公司介绍、福利待遇等无关内容
+- 保留岗位职责、任职要求、技能要求
+- 单独提取 JD 中的技术问题
+
+请求示例：
+
+```json
+{
+  "raw_text": "首页 登录 岗位职责：负责 AI 产品需求分析 任职要求：熟悉 RAG 技术问题：你如何理解 RAG？ 公司介绍..."
+}
+```
+
+返回内容包括：
+
+- `normalized_job.cleaned_job_text`
+- `normalized_job.role_title`
+- `normalized_job.core_requirements`
+- `normalized_job.technical_questions`
+- `normalized_job.confidence`
+
 ## 前端调用方式
 
 本地打开前端：
