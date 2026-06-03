@@ -10,7 +10,7 @@ const state = {
 
 const BACKEND_TIMEOUT_MS = 900;
 const AUTH_TOKEN_STORAGE_KEY = "airjm_auth_token";
-const CLOUD_API_BASE_URL = window.APP_CONFIG?.apiBaseUrl || "";
+const CLOUD_API_BASE_URL = window.APP_CONFIG?.apiBaseUrl || "https://ai-resume-job-matcher-api.onrender.com";
 
 const SAMPLE_RESUME = `姓名：示例用户
 
