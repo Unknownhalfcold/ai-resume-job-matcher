@@ -235,7 +235,7 @@ $env:LLM_MODEL="控制台中可用的模型名"
 - `LLM_BASE_URL`：第三方兼容接口地址。为空时默认使用 OpenAI 官方接口。
 - `LLM_MODEL`：模型名称。
 - `LLM_API_STYLE`：`responses` 或 `chat_completions`。
-- `LLM_MAX_OUTPUT_TOKENS`：限制建议层输出长度，默认 `2200`。
+- `LLM_MAX_OUTPUT_TOKENS`：限制建议层输出长度，默认 `3800`。
 - `LLM_TEMPERATURE`：控制输出随机性，默认 `0.2`。
 
 如果设置了 `LLM_BASE_URL`，系统会默认使用 `chat_completions`，因为大多数第三方兼容 API 优先支持 Chat Completions。

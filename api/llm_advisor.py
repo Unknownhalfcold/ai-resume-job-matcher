@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 
 DEFAULT_LLM_MODEL = "gpt-5.5"
-DEFAULT_MAX_OUTPUT_TOKENS = 2200
+DEFAULT_MAX_OUTPUT_TOKENS = 3800
 
 APIStyle = Literal["responses", "chat_completions"]
 
@@ -774,7 +774,35 @@ def generate_with_chat_completions(
     if not isinstance(content, str) or not content.strip():
         raise LLMResponseError("Model returned empty advice content.")
 
-    return validate_advice(parse_json_object(content))
+    try:
+        return validate_advice(parse_json_object(content))
+    except LLMResponseError as first_error:
+        retry_response = client.chat.completions.create(
+            model=config.model,
+            messages=[
+                {"role": "system", "content": SYSTEM_INSTRUCTIONS},
+                {
+                    "role": "user",
+                    "content": "\n\n".join(
+                        [
+                            "上一次输出没有通过 JSON schema 校验，请重新生成完整 JSON。",
+                            f"校验错误：{first_error}",
+                            "必须包含所有 required 字段，尤其是 normalized_job、scoring_rubric、evidence_review、quantified_gaps、top_actions、rewrite_examples。",
+                            "每个字符串尽量控制在 80 个中文字符以内，避免输出被截断。",
+                            build_chat_prompt(resume_text, job_text, analysis),
+                        ]
+                    ),
+                },
+            ],
+            response_format={"type": "json_object"},
+            temperature=0,
+            max_tokens=config.max_output_tokens,
+        )
+
+        retry_content = retry_response.choices[0].message.content
+        if not isinstance(retry_content, str) or not retry_content.strip():
+            raise first_error
+        return validate_advice(parse_json_object(retry_content))
 
 
 def normalize_job_with_responses_api(
