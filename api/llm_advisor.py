@@ -25,6 +25,12 @@ LLM_ANALYSIS_CONTRACT: dict[str, Any] = {
     "evidence_score_scale": "0-100. Higher means stronger resume evidence for the requirement.",
     "gap_score_scale": "0-100. Higher means a larger gap between resume evidence and JD expectation.",
     "privacy_boundary": "Only user-provided resume and JD text are analyzed. No scraping or third-party site access.",
+    "soft_requirement_policy": (
+        "Generic soft skills such as communication, teamwork, responsibility, stress tolerance, fast learning, "
+        "and collaboration are usually not hard scoring dimensions. Unless the JD asks for concrete evidence "
+        "such as cross-functional delivery, stakeholder management, or project ownership, classify them as "
+        "nice_to_have with weight 1-2, do not mark them as high-impact gaps, and do not let them affect rule_score."
+    ),
 }
 
 
@@ -460,7 +466,8 @@ SYSTEM_INSTRUCTIONS = """
 6. 不要修改、重算或质疑 rule_score，最终匹配分数由规则层负责。
 7. 不要编造用户没有提供的经历、公司、数字、证书或结果。
 8. 如果简历缺少证据，请明确指出“需要补充”，不要替用户虚构。
-9. 输出必须是符合 schema 的中文 JSON。
+9. 对“沟通能力、团队协作、责任心、抗压能力、学习能力、执行力”等软性要求要降权处理。
+10. 输出必须是符合 schema 的中文 JSON。
 
 评分稳定性原则：
 - 规则匹配层负责稳定分数。
@@ -471,6 +478,13 @@ SYSTEM_INSTRUCTIONS = """
 - must_have：JD 中明确要求、反复出现或直接影响岗位胜任的能力，权重通常 4-5。
 - important：对岗位有明显帮助但不是唯一准入条件的能力，权重通常 3-4。
 - nice_to_have：加分项、优先项或补充经验，权重通常 1-3。
+
+软性要求保护规则：
+- 通用软性要求通常不能作为高权重硬缺口，例如“沟通能力强”“团队协作好”“责任心强”“抗压能力强”“学习能力强”。
+- 如果 JD 只是泛泛写软性要求，将 importance 设为 nice_to_have，weight 设为 1-2。
+- 只有当 JD 明确要求可验证的协作成果，例如“跨部门推动项目落地”“管理 stakeholder”“组织项目排期和复盘”，才可以把它归为 important。
+- 不要因为简历没有直写“沟通能力强/团队协作好”就给高 gap_score；应检查简历是否有项目推进、协作交付、沟通对齐等间接证据。
+- 软性要求不得改变、覆盖或重算 rule_score。
 
 合规与隐私边界：
 - 只分析用户提供的简历和 JD 文本，不访问、不抓取、不推断第三方网站内容。
@@ -487,7 +501,8 @@ JOB_NORMALIZATION_INSTRUCTIONS = """
 3. 岗位职责和岗位要求都必须考虑；不要因为截图里出现“要求”“任职资格”就把它误删。
 4. 如果 JD 中出现技术问答题，例如“你如何理解 RAG”，不要删除，要放入 technical_questions，同时也要在 cleaned_job_text 的“技术问题”部分保留。
 5. 不要补写原文没有的信息，不要编造公司、薪资、学历或技能要求。
-6. 输出必须是符合 schema 的中文 JSON。
+6. 对“沟通能力、团队协作、责任心、抗压能力、学习能力、执行力”等软性要求要保留但标记为低优先级语义，不要把它们当作核心硬技能。
+7. 输出必须是符合 schema 的中文 JSON。
 
 清洗边界：
 - 删除：登录、注册、分享、收藏、立即申请、投递简历、公司介绍、福利待遇、地址、推荐职位等无关内容。
@@ -498,6 +513,7 @@ cleaned_job_text 格式：
 - 岗位职责来自“岗位职责、职位描述、工作内容、你将负责、Responsibilities、What you will do”等部分。
 - 岗位要求来自“岗位要求、任职要求、任职资格、招聘要求、Requirements、Qualifications、Who you are”等部分。
 - 加分项来自“优先、加分、Bonus、Preferred、Nice to have”等部分。
+- 软性要求可以保留在“岗位要求”里，但不要把泛泛的沟通、协作、责任心、抗压能力写成核心技能要求。
 - 如果原文只有职责或只有要求，可以只输出存在的部分，但不要把要求合并成网页噪音。
 """.strip()
 
@@ -699,6 +715,7 @@ def build_job_normalization_input(raw_text: str) -> str:
             "请从以下 OCR 或网页复制文本中提取真正的岗位 JD。",
             "必须同时考虑两类核心内容：岗位职责/工作内容，以及岗位要求/任职要求/任职资格。",
             "还要保留加分项/优先项、技能工具、学历专业、经验年限、项目要求和 JD 中出现的技术问题。",
+            "如果文本里出现通用软性要求，如沟通、团队协作、责任心、抗压能力、学习能力，只能作为低优先级要求保留，不要当成硬技能。",
             "删除网页噪音、按钮、导航、福利、公司介绍、推荐职位、广告、地址和投递入口。",
             "cleaned_job_text 请整理成清晰中文文本，优先使用这些小标题：岗位名称、岗位职责、岗位要求、加分项、技术问题。",
             "如果某类内容原文不存在，不要编造；如果没有足够 JD 信息，cleaned_job_text 返回尽可能少的可靠内容，并降低 confidence。",
