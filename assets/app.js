@@ -327,7 +327,7 @@ function cleanJobDescriptionText(rawText) {
   if (!original) return "";
 
   const startPattern =
-    /(岗位职责|职位描述|工作职责|工作内容|岗位描述|职位要求|岗位要求|任职要求|任职资格|任职条件|工作要求|任职标准|你将负责|Responsibilities|Requirements|Qualifications|Job Description)/i;
+    /(岗位职责|职位职责|职位描述|工作职责|工作内容|岗位描述|主要职责|你将负责|工作任务|职位要求|岗位要求|任职要求|任职资格|任职条件|招聘要求|工作要求|任职标准|能力要求|技能要求|专业要求|学历要求|加分项|优先|技术问题|技术问答|面试题|问答题|开放问题|Responsibilities|Requirements|Qualifications|Job Description|What you will do|What you'll do|Who you are|Preferred|Bonus|Nice to have)/i;
   const stopPattern =
     /(公司介绍|关于我们|企业介绍|工商信息|公司地址|工作地址|相似职位|推荐职位|职位福利|薪资福利|福利待遇|职位亮点|企业信息|团队介绍|举报|分享|收藏|立即沟通|立即申请|投递简历|申请职位|查看更多|展开全部)/i;
   const noisePattern =
@@ -335,7 +335,7 @@ function cleanJobDescriptionText(rawText) {
   const weakNoisePattern =
     /(浏览量|回复率|活跃|在线|刚刚|分钟前|小时前|天前|发布于|浏览|收藏|分享|举报|APP|扫码|微信|电话|邮箱|地图|地址|薪资|月薪|年薪|五险一金|双休|大小周|弹性|团建|带薪|补贴|餐补|房补|交通补助|股票期权|融资|天使轮|A轮|B轮|C轮|上市|不需要融资|公司规模|少于\d+人|\d+-\d+人)/i;
   const valuePattern =
-    /(岗位|职位|职责|要求|任职|资格|经验|能力|熟悉|负责|参与|协作|沟通|数据|产品|用户|项目|分析|设计|开发|运营|模型|AI|LLM|SQL|Python|Excel|本科|学历|专业|优先|experience|skill|requirement|responsibilit|qualif)/i;
+    /(岗位|职位|职责|工作内容|要求|任职|资格|条件|经验|能力|熟悉|掌握|了解|负责|参与|协作|沟通|数据|产品|用户|项目|分析|设计|开发|运营|模型|大模型|机器学习|AI|LLM|RAG|Prompt|API|SQL|Python|JavaScript|React|HTML|CSS|JSON|Excel|本科|学历|专业|优先|加分|技术问题|技术问答|面试题|问答题|开放问题|如何|怎么|为什么|experience|skill|requirement|responsibilit|qualif|preferred|bonus|question)/i;
 
   const lines = original
     .split("\n")
@@ -366,7 +366,9 @@ function cleanJobDescriptionText(rawText) {
 
     const bulletLike = /^([-*•·]|\d+[.、)]|[一二三四五六七八九十]+[、.])/.test(compact);
     const keywordHit = valuePattern.test(compact);
-    const useful = insideJobBlock || bulletLike || keywordHit;
+    const questionLike = /(技术问题|技术问答|面试题|问答题|开放问题|如何|怎么|为什么|请.*(说明|描述|解释|谈谈)|你.*理解|question|explain|describe|how would|what is|why)/i.test(compact)
+      && (compact.includes("?") || compact.includes("？") || compact.length >= 12);
+    const useful = insideJobBlock || bulletLike || keywordHit || questionLike;
 
     if (!useful) continue;
     if (!insideJobBlock && weakNoisePattern.test(compact) && !startPattern.test(compact)) continue;

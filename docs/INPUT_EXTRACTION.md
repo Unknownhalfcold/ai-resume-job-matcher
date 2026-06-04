@@ -44,9 +44,18 @@ POST /api/normalize/job
 
 - 岗位名称
 - 岗位职责
-- 任职要求
+- 岗位要求 / 任职要求 / 任职资格
 - 技能要求
+- 加分项 / 优先项
 - JD 中出现的技术问题
+
+为了让 LLM 不被网页噪音带偏，后端会先用规则提取一份“JD 候选文本”，再把候选文本和原始 OCR 文本一起交给 LLM。规则会优先保留这些信号：
+
+- 职责类标题：岗位职责、职位描述、工作内容、Responsibilities、What you will do
+- 要求类标题：岗位要求、任职要求、任职资格、Requirements、Qualifications、Who you are
+- 加分项标题：优先、加分项、Preferred、Bonus、Nice to have
+- 技能和工具：Python、SQL、Excel、API、RAG、LLM、数据分析等
+- 技术问答：如何理解、怎么设计、为什么、Explain、How would 等
 
 如果 LLM 清洗失败，前端会自动退回规则清洗，用户仍然可以手动确认文本。
 

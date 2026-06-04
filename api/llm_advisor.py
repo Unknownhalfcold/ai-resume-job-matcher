@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 DEFAULT_LLM_MODEL = "gpt-5.5"
 DEFAULT_MAX_OUTPUT_TOKENS = 3800
+MAX_JOB_OCR_CANDIDATE_CHARS = 6000
 
 APIStyle = Literal["responses", "chat_completions"]
 
@@ -146,6 +147,42 @@ class JobNormalizationPayload(BaseModel):
     technical_questions: list[TechnicalQuestionItem] = Field(max_length=6)
     removed_noise_summary: str
     confidence: int = Field(ge=0, le=100)
+
+
+JD_SECTION_PATTERN = re.compile(
+    r"(岗位职责|职位职责|职位描述|工作职责|工作内容|岗位描述|主要职责|你将负责|工作任务|"
+    r"岗位要求|职位要求|任职要求|任职资格|任职条件|招聘要求|能力要求|技能要求|专业要求|学历要求|"
+    r"加分项|优先|优先考虑|技术问题|技术问答|面试题|问答题|开放问题|bonus|preferred|nice to have|responsibilities|requirements|qualifications|"
+    r"job description|what you will do|what you'll do|who you are|what we look for)",
+    re.IGNORECASE,
+)
+JD_REQUIREMENT_PATTERN = re.compile(
+    r"(要求|任职|资格|条件|具备|熟悉|掌握|了解|经验|学历|专业|能力|技能|优先|加分|"
+    r"Python|SQL|Excel|JavaScript|React|HTML|CSS|JSON|API|RAG|LLM|AI|大模型|机器学习|数据分析|"
+    r"requirements|qualifications|skills|experience|preferred|bonus)",
+    re.IGNORECASE,
+)
+JD_RESPONSIBILITY_PATTERN = re.compile(
+    r"(负责|参与|推进|协作|设计|分析|整理|输出|撰写|跟进|落地|优化|建设|维护|支持|"
+    r"responsible|work with|design|analy[sz]e|build|manage|deliver|support)",
+    re.IGNORECASE,
+)
+JD_QUESTION_PATTERN = re.compile(
+    r"(技术问题|技术问答|面试题|问答题|开放问题|如何|怎么|为什么|请.*(说明|描述|解释|谈谈)|你.*理解|question|explain|describe|how would|what is|why)",
+    re.IGNORECASE,
+)
+JD_NOISE_LINE_PATTERN = re.compile(
+    r"^(首页|登录|注册|消息|搜索|筛选|推荐|广告|打开APP|下载APP|扫码|微信|微博|分享|收藏|举报|反馈|"
+    r"上一页|下一页|更多|展开|收起|立即申请|申请职位|投递简历|在线沟通|查看地图|公司主页|职位详情|"
+    r"公司详情|热招职位|全部职位|相似职位|推荐职位)$",
+    re.IGNORECASE,
+)
+JD_STOP_SECTION_PATTERN = re.compile(
+    r"(公司介绍|关于我们|企业介绍|工商信息|公司地址|工作地址|职位福利|薪资福利|福利待遇|职位亮点|"
+    r"企业信息|团队介绍|举报|分享|收藏|立即沟通|立即申请|投递简历|申请职位|查看更多|展开全部|"
+    r"similar jobs|recommended jobs|company profile|benefits)",
+    re.IGNORECASE,
+)
 
 
 ADVICE_SCHEMA: dict[str, Any] = {
@@ -446,14 +483,22 @@ JOB_NORMALIZATION_INSTRUCTIONS = """
 
 任务：
 1. 输入可能来自截图 OCR，里面可能混有网页导航、按钮、公司介绍、福利、推荐职位和广告。
-2. 只保留和目标岗位直接相关的内容：岗位名称、岗位职责、任职要求、技能要求、技术问题。
-3. 如果 JD 中出现技术问答题，例如“你如何理解 RAG”，不要删除，要放入 technical_questions。
-4. 不要补写原文没有的信息，不要编造公司、薪资、学历或技能要求。
-5. 输出必须是符合 schema 的中文 JSON。
+2. 只保留和目标岗位直接相关的内容：岗位名称、岗位职责/工作内容、岗位要求/任职要求/任职资格、技能要求、加分项、技术问题。
+3. 岗位职责和岗位要求都必须考虑；不要因为截图里出现“要求”“任职资格”就把它误删。
+4. 如果 JD 中出现技术问答题，例如“你如何理解 RAG”，不要删除，要放入 technical_questions，同时也要在 cleaned_job_text 的“技术问题”部分保留。
+5. 不要补写原文没有的信息，不要编造公司、薪资、学历或技能要求。
+6. 输出必须是符合 schema 的中文 JSON。
 
 清洗边界：
 - 删除：登录、注册、分享、收藏、立即申请、投递简历、公司介绍、福利待遇、地址、推荐职位等无关内容。
-- 保留：职责、要求、技能、经验、学历、工具、技术问题、项目要求。
+- 保留：职责、要求、技能、经验、学历、专业、工具、项目要求、加分项、技术问题。
+
+cleaned_job_text 格式：
+- 尽量整理为“岗位名称 / 岗位职责 / 岗位要求 / 加分项 / 技术问题”几段。
+- 岗位职责来自“岗位职责、职位描述、工作内容、你将负责、Responsibilities、What you will do”等部分。
+- 岗位要求来自“岗位要求、任职要求、任职资格、招聘要求、Requirements、Qualifications、Who you are”等部分。
+- 加分项来自“优先、加分、Bonus、Preferred、Nice to have”等部分。
+- 如果原文只有职责或只有要求，可以只输出存在的部分，但不要把要求合并成网页噪音。
 """.strip()
 
 
@@ -558,6 +603,56 @@ def get_llm_analysis_contract() -> dict[str, Any]:
     return LLM_ANALYSIS_CONTRACT
 
 
+def normalize_ocr_line(line: str) -> str:
+    return re.sub(r"\s+", " ", line.replace("\u3000", " ")).strip()
+
+
+def is_job_candidate_line(line: str, inside_job_block: bool) -> bool:
+    if not line or len(line) > 320:
+        return False
+    if re.match(r"^https?://", line, re.IGNORECASE):
+        return False
+    if JD_NOISE_LINE_PATTERN.fullmatch(line):
+        return False
+
+    bullet_like = bool(re.match(r"^([-*•·]|\d+[.、)]|[一二三四五六七八九十]+[、.])", line))
+    has_section = bool(JD_SECTION_PATTERN.search(line))
+    has_requirement = bool(JD_REQUIREMENT_PATTERN.search(line))
+    has_responsibility = bool(JD_RESPONSIBILITY_PATTERN.search(line))
+    has_question = bool(JD_QUESTION_PATTERN.search(line)) and ("?" in line or "？" in line or len(line) >= 12)
+    return inside_job_block or bullet_like or has_section or has_requirement or has_responsibility or has_question
+
+
+def build_job_ocr_candidate(raw_text: str) -> str:
+    lines = [normalize_ocr_line(line) for line in raw_text.replace("\r", "\n").split("\n")]
+    lines = [line for line in lines if line]
+
+    kept: list[str] = []
+    seen: set[str] = set()
+    inside_job_block = False
+
+    for line in lines:
+        compact = re.sub(r"^[^\w\u4e00-\u9fa5]+", "", line).strip()
+        if not compact or compact in seen:
+            continue
+
+        if JD_SECTION_PATTERN.search(compact):
+            inside_job_block = True
+        elif inside_job_block and JD_STOP_SECTION_PATTERN.search(compact) and len(kept) >= 3:
+            break
+
+        if not is_job_candidate_line(compact, inside_job_block):
+            continue
+
+        seen.add(compact)
+        kept.append(compact)
+
+        if sum(len(item) for item in kept) >= MAX_JOB_OCR_CANDIDATE_CHARS:
+            break
+
+    return "\n".join(kept)
+
+
 def build_advice_input(resume_text: str, job_text: str, analysis: dict[str, Any]) -> str:
     compact_analysis = {
         "rule_score": analysis.get("score"),
@@ -598,12 +693,17 @@ def build_chat_prompt(resume_text: str, job_text: str, analysis: dict[str, Any])
 
 
 def build_job_normalization_input(raw_text: str) -> str:
+    candidate_text = build_job_ocr_candidate(raw_text)
     return "\n\n".join(
         [
             "请从以下 OCR 或网页复制文本中提取真正的岗位 JD。",
-            "保留岗位标题、岗位职责、任职要求、技能要求和技术问题。",
-            "删除网页噪音、按钮、导航、福利、公司介绍、推荐职位和广告。",
-            "如果没有足够 JD 信息，cleaned_job_text 返回尽可能少的可靠内容，并降低 confidence。",
+            "必须同时考虑两类核心内容：岗位职责/工作内容，以及岗位要求/任职要求/任职资格。",
+            "还要保留加分项/优先项、技能工具、学历专业、经验年限、项目要求和 JD 中出现的技术问题。",
+            "删除网页噪音、按钮、导航、福利、公司介绍、推荐职位、广告、地址和投递入口。",
+            "cleaned_job_text 请整理成清晰中文文本，优先使用这些小标题：岗位名称、岗位职责、岗位要求、加分项、技术问题。",
+            "如果某类内容原文不存在，不要编造；如果没有足够 JD 信息，cleaned_job_text 返回尽可能少的可靠内容，并降低 confidence。",
+            "【规则候选文本】",
+            candidate_text or "未提取到可靠候选行，请直接根据原始文本判断。",
             "【原始文本】",
             raw_text,
         ]
@@ -832,7 +932,7 @@ def normalize_job_with_responses_api(
                 "strict": True,
             }
         },
-        max_output_tokens=min(config.max_output_tokens, 1400),
+        max_output_tokens=min(config.max_output_tokens, 2200),
     )
 
     return validate_job_normalization(json.loads(response.output_text))
@@ -851,7 +951,7 @@ def normalize_job_with_chat_completions(
         ],
         response_format={"type": "json_object"},
         temperature=0,
-        max_tokens=min(config.max_output_tokens, 1400),
+        max_tokens=min(config.max_output_tokens, 2200),
     )
 
     content = response.choices[0].message.content
