@@ -16,7 +16,7 @@ Neon Postgres 数据库
 
 ## 新增概念
 
-- `数据库`：网站的长期记忆。当前先保存用户邮箱、密码哈希和登录 session。
+- `数据库`：网站的长期记忆。当前保存用户邮箱、密码哈希、登录 session 和登录用户的分析历史。
 - `密码哈希`：不是保存真实密码，而是保存不可逆的密码指纹。
 - `Postgres`：真实网站常用的关系型数据库。
 - `DATABASE_URL`：后端连接数据库用的地址，属于密钥，不要写进 GitHub。
@@ -168,6 +168,6 @@ https://unknownhalfcold.github.io/ai-resume-job-matcher/?api=https://你的-rend
 ## 重要限制
 
 - 当前账户系统是 MVP：没有邮箱验证码、找回密码、会员额度和支付。
-- 当前不默认保存简历原文，降低隐私风险。
+- 登录用户完成分析后会保存简历文本、岗位 JD 和分析结果；游客模式不会保存历史。
 - 生产环境建议把前端 token 改成后端 `HttpOnly Cookie`。
 - Render 免费 Web Service 会休眠，第一次访问可能需要等待。
