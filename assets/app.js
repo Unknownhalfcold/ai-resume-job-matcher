@@ -6,11 +6,14 @@ const state = {
   llmConfigured: false,
   authToken: "",
   currentUser: null,
+  historyRecords: [],
 };
 
-const BACKEND_TIMEOUT_MS = 900;
+const BACKEND_TIMEOUT_MS = 12000;
+const API_HEALTH_TIMEOUT_MS = 25000;
 const AUTH_TOKEN_STORAGE_KEY = "airjm_auth_token";
 const CLOUD_API_BASE_URL = window.APP_CONFIG?.apiBaseUrl || "https://ai-resume-job-matcher-api.onrender.com";
+const PAGE_NAMES = ["start", "analyze", "result", "history", "privacy"];
 
 const SAMPLE_RESUME = `姓名：示例用户
 
@@ -102,6 +105,9 @@ const elements = {
   authStatus: document.querySelector("#auth-status"),
   authRegister: document.querySelector("#auth-register"),
   authLogin: document.querySelector("#auth-login"),
+  historyRefresh: document.querySelector("#history-refresh"),
+  historyStatus: document.querySelector("#history-status"),
+  historyList: document.querySelector("#history-list"),
 };
 
 const LLM_PROVIDER_PRESETS = {
@@ -169,11 +175,11 @@ function getAiMode() {
 
 function getPageFromHash() {
   const pageName = window.location.hash.replace("#", "");
-  return ["start", "analyze", "result"].includes(pageName) ? pageName : "start";
+  return PAGE_NAMES.includes(pageName) ? pageName : "start";
 }
 
 function showPage(pageName, { push = true } = {}) {
-  const nextPage = ["start", "analyze", "result"].includes(pageName) ? pageName : "start";
+  const nextPage = PAGE_NAMES.includes(pageName) ? pageName : "start";
 
   elements.pages.forEach((page) => {
     page.hidden = page.dataset.view !== nextPage;
@@ -193,6 +199,10 @@ function showPage(pageName, { push = true } = {}) {
   }
 
   window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+
+  if (nextPage === "history") {
+    window.setTimeout(loadHistoryRecords, 0);
+  }
 }
 
 function showLoading(message = "准备分析任务") {
@@ -214,6 +224,28 @@ function updateProgress(value, step, message) {
   if (elements.analysisStatus) {
     elements.analysisStatus.textContent = step;
   }
+}
+
+function getRuntimeLabel() {
+  if (!state.apiAvailable) return "Browser fallback";
+  return state.llmConfigured ? "Cloud API + DeepSeek" : "Cloud API";
+}
+
+function getReadinessNote() {
+  if (!state.keywords.length) {
+    return "基础规则加载中";
+  }
+  if (state.apiAvailable && state.llmConfigured) {
+    return "基础规则已加载 · 云端 API 和 DeepSeek 已连接";
+  }
+  if (state.apiAvailable) {
+    return "基础规则已加载 · 云端 API 已连接";
+  }
+  return "基础规则已加载 · 云端 API 连接中或暂不可用";
+}
+
+function updateRuntimeStatus() {
+  elements.runtimeStatus.textContent = getRuntimeLabel();
 }
 
 function showInputAlert(message, focusTarget = null) {
@@ -462,6 +494,16 @@ async function fetchJsonWithTimeout(url, options = {}, timeoutMs = BACKEND_TIMEO
   }
 }
 
+async function ensureApiAvailable() {
+  if (state.apiAvailable) {
+    return true;
+  }
+
+  elements.runNote.textContent = "正在连接云端 API，Render 免费实例可能需要唤醒";
+  await detectBackend();
+  return state.apiAvailable;
+}
+
 function loadStoredAuthToken() {
   try {
     state.authToken = window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) || "";
@@ -513,7 +555,7 @@ function updateAuthUi() {
     elements.userChip.textContent = state.currentUser.email;
   } else {
     elements.userChip.textContent = "";
-    elements.authOpen.textContent = state.apiAvailable ? "登录 / 注册" : "登录需后端";
+    elements.authOpen.textContent = state.apiAvailable ? "登录 / 注册" : "云端连接中";
   }
 }
 
@@ -566,6 +608,9 @@ async function submitAuth(mode) {
     state.currentUser = response.user;
     setAuthStatus("登录成功。", "success");
     updateAuthUi();
+    if (document.body.dataset.page === "history") {
+      loadHistoryRecords();
+    }
     window.setTimeout(closeAuthModal, 420);
   } catch (error) {
     setAuthStatus(error.message, "error");
@@ -601,8 +646,12 @@ async function fetchCurrentUser() {
 async function logoutCurrentUser() {
   const token = state.authToken;
   state.currentUser = null;
+  state.historyRecords = [];
   setAuthToken("");
   updateAuthUi();
+  if (document.body.dataset.page === "history") {
+    renderHistorySignedOut();
+  }
 
   if (!state.apiAvailable || !token) {
     return;
@@ -621,6 +670,210 @@ async function logoutCurrentUser() {
     );
   } catch (error) {
     console.warn(error);
+  }
+}
+
+function normalizeHistoryItems(items, limit = 12) {
+  return [...new Set((items || []).map((item) => String(item || "").trim()).filter(Boolean))].slice(0, limit);
+}
+
+function buildHistoryPayload(resumeText, jobText, result) {
+  return {
+    resume_text: resumeText,
+    job_description: jobText,
+    match_score: Number(result.score) || 0,
+    strengths: normalizeHistoryItems((result.matched_keywords || []).map((keyword) => keyword.name)),
+    weaknesses: normalizeHistoryItems((result.missing_keywords || []).map((keyword) => keyword.name)),
+    suggestions: normalizeHistoryItems(result.suggestions || []),
+  };
+}
+
+async function saveAnalysisHistory(resumeText, jobText, result) {
+  if (!state.apiAvailable || !state.currentUser) {
+    elements.runNote.textContent = "分析完成；游客模式不会保存历史，登录后可自动保存";
+    return;
+  }
+
+  try {
+    const response = await fetchJsonWithTimeout(
+      `${state.apiBaseUrl}/api/history`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify(buildHistoryPayload(resumeText, jobText, result)),
+      },
+      12000,
+    );
+    state.historyRecords = [response.record, ...state.historyRecords.filter((record) => record.id !== response.record.id)];
+    elements.runNote.textContent = "分析完成；结果已保存到 History";
+  } catch (error) {
+    elements.runNote.textContent = "分析完成；历史保存失败，可稍后重试";
+    console.warn(error);
+  }
+}
+
+function renderHistorySignedOut() {
+  state.historyRecords = [];
+  elements.historyStatus.textContent = state.apiAvailable
+    ? "请先登录或注册账户，再查看自己的分析历史。游客模式可以分析，但不会保存记录。"
+    : "云端 API 暂未连接，暂时无法读取分析历史。";
+  elements.historyList.replaceChildren();
+}
+
+function formatHistoryDate(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function truncateText(text, maxLength = 180) {
+  const value = String(text || "").replace(/\s+/g, " ").trim();
+  if (value.length <= maxLength) return value || "暂无内容";
+  return `${value.slice(0, maxLength)}...`;
+}
+
+function createHistorySnippet(label, text) {
+  const paragraph = document.createElement("p");
+  const strong = document.createElement("strong");
+  strong.textContent = `${label}：`;
+  paragraph.append(strong, document.createTextNode(truncateText(text)));
+  return paragraph;
+}
+
+function createHistoryTags(label, items) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "history-tags";
+
+  const title = document.createElement("span");
+  title.textContent = label;
+  wrapper.append(title);
+
+  const visibleItems = normalizeHistoryItems(items, 8);
+  if (!visibleItems.length) {
+    const empty = document.createElement("span");
+    empty.textContent = "暂无";
+    wrapper.append(empty);
+    return wrapper;
+  }
+
+  visibleItems.forEach((item) => {
+    const tag = document.createElement("span");
+    tag.textContent = item;
+    wrapper.append(tag);
+  });
+  return wrapper;
+}
+
+function renderHistoryRecords(records) {
+  elements.historyList.replaceChildren();
+  if (!records.length) {
+    elements.historyStatus.textContent = "还没有分析历史。完成一次分析后，这里会显示保存的记录。";
+    return;
+  }
+
+  elements.historyStatus.textContent = `共 ${records.length} 条分析记录。`;
+  records.forEach((record) => {
+    const card = document.createElement("article");
+    card.className = "history-card";
+
+    const top = document.createElement("div");
+    top.className = "history-card-top";
+
+    const score = document.createElement("div");
+    score.className = "history-score";
+    const scoreValue = document.createElement("strong");
+    scoreValue.textContent = String(record.match_score);
+    score.append(scoreValue, document.createTextNode("/100"));
+
+    const date = document.createElement("span");
+    date.className = "history-date";
+    date.textContent = formatHistoryDate(record.created_at);
+    top.append(score, date);
+
+    const snippets = document.createElement("div");
+    snippets.className = "history-snippet";
+    snippets.append(
+      createHistorySnippet("简历", record.resume_text),
+      createHistorySnippet("JD", record.job_description),
+    );
+
+    const actions = document.createElement("div");
+    actions.className = "history-actions";
+    const tags = document.createElement("div");
+    tags.className = "history-list";
+    tags.append(
+      createHistoryTags("优势", record.strengths),
+      createHistoryTags("缺口", record.weaknesses),
+      createHistoryTags("建议", record.suggestions),
+    );
+
+    const deleteButton = document.createElement("button");
+    deleteButton.className = "button ghost";
+    deleteButton.type = "button";
+    deleteButton.dataset.historyDelete = String(record.id);
+    deleteButton.textContent = "Delete";
+    actions.append(tags, deleteButton);
+
+    card.append(top, snippets, actions);
+    elements.historyList.append(card);
+  });
+}
+
+async function loadHistoryRecords() {
+  if (!state.apiAvailable || !state.currentUser) {
+    renderHistorySignedOut();
+    return;
+  }
+
+  elements.historyStatus.textContent = "正在读取分析历史...";
+  try {
+    const response = await fetchJsonWithTimeout(
+      `${state.apiBaseUrl}/api/history`,
+      {
+        headers: getAuthHeaders(),
+      },
+      12000,
+    );
+    state.historyRecords = response.records || [];
+    renderHistoryRecords(state.historyRecords);
+  } catch (error) {
+    elements.historyStatus.textContent = `历史记录读取失败：${error.message}`;
+    elements.historyList.replaceChildren();
+  }
+}
+
+async function deleteHistoryRecord(recordId) {
+  if (!state.apiAvailable || !state.currentUser) {
+    renderHistorySignedOut();
+    return;
+  }
+
+  const confirmed = window.confirm("确定删除这条分析记录吗？删除后无法在 History 页面恢复。");
+  if (!confirmed) return;
+
+  elements.historyStatus.textContent = "正在删除记录...";
+  try {
+    await fetchJsonWithTimeout(
+      `${state.apiBaseUrl}/api/history/${recordId}`,
+      {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      },
+      12000,
+    );
+    await loadHistoryRecords();
+  } catch (error) {
+    elements.historyStatus.textContent = `删除失败：${error.message}`;
   }
 }
 
@@ -729,8 +982,9 @@ async function analyzeViaApi(resumeText, jobText) {
 }
 
 async function extractResumeFile(file) {
-  if (!state.apiAvailable) {
-    throw new Error("请先启动后端 API，再上传 Word/PDF 简历。");
+  const apiReady = await ensureApiAvailable();
+  if (!apiReady) {
+    throw new Error("云端 API 暂时未连接，请等待 Render 唤醒后重试。");
   }
 
   const formData = new FormData();
@@ -797,6 +1051,22 @@ function canGenerateAiAdvice() {
   return state.llmConfigured;
 }
 
+function getAiAdvicePlaceholderMessage() {
+  if (canGenerateAiAdvice()) {
+    return "基础分析已完成，可以生成 AI 建议";
+  }
+
+  if (getAiMode() === "byok") {
+    return "请填写自己的 API Key 和模型名";
+  }
+
+  if (!state.apiAvailable) {
+    return "云端 API 连接中，连接后可使用站点默认 LLM";
+  }
+
+  return "站点默认 LLM 暂未配置，可切换到自带 API Key";
+}
+
 function collectUserLlmConfig() {
   if (getAiMode() !== "byok") {
     return null;
@@ -831,13 +1101,7 @@ function syncAiModeUi() {
   document.querySelector(".ai-settings").hidden = !byokMode;
   updateAiAdviceAvailability();
   if (state.lastResult) {
-    renderAiAdvicePlaceholder(
-      canGenerateAiAdvice()
-        ? "基础分析已完成，可以生成 AI 建议"
-        : byokMode
-          ? "请填写自己的 API Key 和模型名"
-          : "默认 LLM 暂未配置，可切换到自带 API Key",
-    );
+    renderAiAdvicePlaceholder(getAiAdvicePlaceholderMessage());
   }
 }
 
@@ -877,7 +1141,7 @@ async function runAnalysis(resumeText, jobText) {
     } catch (error) {
       state.apiAvailable = false;
       state.apiBaseUrl = "";
-      elements.runtimeStatus.textContent = "Browser mode";
+      updateRuntimeStatus();
       elements.runNote.textContent = "后端不可用，已切换本地分析";
       console.warn(error);
     }
@@ -1191,13 +1455,7 @@ function renderResult(result) {
   renderCategorySummary(result.category_summary);
   renderPriorityGaps(result.priority_gaps);
   renderSuggestions(result.suggestion_items);
-  renderAiAdvicePlaceholder(
-    canGenerateAiAdvice()
-      ? "基础分析已完成，可以生成 AI 建议"
-      : getAiMode() === "byok"
-        ? "请填写自己的 API Key 和模型名"
-        : "默认 LLM 暂未配置，可切换到自带 API Key",
-  );
+  renderAiAdvicePlaceholder(getAiAdvicePlaceholderMessage());
 }
 
 function renderEmptyResult() {
@@ -1224,11 +1482,11 @@ async function loadKeywords() {
     state.keywords = await response.json();
     elements.analyzeButton.disabled = false;
     elements.loadSampleButton.disabled = false;
-    elements.runNote.textContent = `关键词库：${state.keywords.length} 项`;
+    elements.runNote.textContent = getReadinessNote();
   } catch (error) {
     elements.analyzeButton.disabled = true;
     elements.loadSampleButton.disabled = true;
-    elements.runNote.textContent = "关键词库加载失败";
+    elements.runNote.textContent = "基础规则加载失败";
     console.error(error);
   }
 }
@@ -1238,18 +1496,23 @@ async function detectBackend() {
 
   if (!apiBaseUrl) {
     state.llmConfigured = false;
-    elements.runtimeStatus.textContent = "Browser mode";
+    updateRuntimeStatus();
     updateAuthUi();
     return;
   }
 
+  elements.runtimeStatus.textContent = "Connecting API";
   try {
-    const health = await fetchJsonWithTimeout(`${apiBaseUrl}/health`);
+    const health = await fetchJsonWithTimeout(`${apiBaseUrl}/health`, {}, API_HEALTH_TIMEOUT_MS);
     state.apiBaseUrl = apiBaseUrl;
     state.apiAvailable = health.status === "ok";
     state.llmConfigured = Boolean(health.llm_configured);
-    elements.runtimeStatus.textContent = state.apiAvailable ? "API mode" : "Browser mode";
+    updateRuntimeStatus();
+    elements.runNote.textContent = getReadinessNote();
     await fetchCurrentUser();
+    if (document.body.dataset.page === "history") {
+      loadHistoryRecords();
+    }
     if (state.lastResult) {
       updateAiAdviceAvailability();
       renderAiAdvicePlaceholder(
@@ -1257,7 +1520,7 @@ async function detectBackend() {
           ? "基础分析已完成，可以生成 AI 建议"
           : getAiMode() === "byok"
             ? "后端在线，请填写自己的 API Key 启用 AI 建议"
-            : "默认 LLM 暂未配置，可切换到自带 API Key",
+            : getAiAdvicePlaceholderMessage(),
       );
     }
   } catch (error) {
@@ -1265,7 +1528,8 @@ async function detectBackend() {
     state.apiAvailable = false;
     state.llmConfigured = false;
     state.currentUser = null;
-    elements.runtimeStatus.textContent = "Browser mode";
+    updateRuntimeStatus();
+    elements.runNote.textContent = getReadinessNote();
     updateAuthUi();
   }
 }
@@ -1316,7 +1580,7 @@ function bindEvents() {
     elements.exampleModal.hidden = true;
     hideLoading();
     showPage("analyze");
-    elements.runNote.textContent = `关键词库：${state.keywords.length} 项；示例已载入`;
+    elements.runNote.textContent = `${getReadinessNote()}；示例已载入`;
   });
 
   elements.resumeFile.addEventListener("change", async () => {
@@ -1454,7 +1718,7 @@ function bindEvents() {
       updateProgress(78, "生成结果", "正在整理分数、缺口和建议");
       await new Promise((resolve) => window.setTimeout(resolve, 520));
       renderResultPage(result);
-      elements.runNote.textContent = `关键词库：${state.keywords.length} 项`;
+      await saveAnalysisHistory(resumeText, jobText, result);
     } catch (error) {
       updateProgress(100, "分析失败", error.message);
       elements.runNote.textContent = error.message;
@@ -1469,7 +1733,7 @@ function bindEvents() {
     setInputStatus("jd", "示例 JD 已载入", "可直接开始分析");
     hideLoading();
     showPage("analyze");
-    elements.runNote.textContent = `关键词库：${state.keywords.length} 项；示例已载入`;
+    elements.runNote.textContent = `${getReadinessNote()}；示例已载入`;
   });
 
   elements.clearButton.addEventListener("click", () => {
@@ -1480,7 +1744,7 @@ function bindEvents() {
     clearInputStatus("resume");
     clearInputStatus("jd");
     hideLoading();
-    elements.runNote.textContent = `关键词库：${state.keywords.length} 项`;
+    elements.runNote.textContent = getReadinessNote();
   });
 
   elements.copyJsonButton.addEventListener("click", async () => {
@@ -1494,17 +1758,27 @@ function bindEvents() {
     }
   });
 
+  elements.historyRefresh.addEventListener("click", () => {
+    loadHistoryRecords();
+  });
+
+  elements.historyList.addEventListener("click", (event) => {
+    const deleteButton = event.target.closest("[data-history-delete]");
+    if (!deleteButton) return;
+    deleteHistoryRecord(deleteButton.dataset.historyDelete);
+  });
+
   elements.aiAdviceButton.addEventListener("click", async () => {
     const resumeText = elements.resumeInput.value.trim();
     const jobText = elements.jobInput.value.trim();
 
     if (!state.apiAvailable) {
-      renderAiAdvicePlaceholder("请先启动后端 API，再生成 AI 建议");
+      renderAiAdvicePlaceholder("云端 API 暂未连接，请等待 Render 唤醒后重试。");
       return;
     }
 
     if (!state.llmConfigured && !hasCompleteUserLlmConfig()) {
-      renderAiAdvicePlaceholder("请先填写自己的 API Key 和模型名，或在后端配置 LLM_API_KEY");
+      renderAiAdvicePlaceholder(getAiAdvicePlaceholderMessage());
       return;
     }
 
@@ -1543,7 +1817,7 @@ function bindEvents() {
     input.addEventListener("input", () => {
       updateAiAdviceAvailability();
       if (state.lastResult && canGenerateAiAdvice()) {
-        renderAiAdvicePlaceholder("基础分析已完成，可以生成 AI 建议");
+        renderAiAdvicePlaceholder(getAiAdvicePlaceholderMessage());
       }
     });
     input.addEventListener("change", () => {

@@ -16,6 +16,8 @@
         <a href="#start" data-page-link="start">Start</a>
         <a href="#analyze" data-page-link="analyze">Analyzer</a>
         <a href="#result" data-page-link="result">Result</a>
+        <a href="#history" data-page-link="history">History</a>
+        <a href="#privacy" data-page-link="privacy">Privacy</a>
         <a href="docs/scoring.html">Scoring</a>
         <a href="https://github.com/Unknownhalfcold/ai-resume-job-matcher">GitHub</a>
       </nav>
@@ -42,13 +44,13 @@
           <div class="feature-row" aria-label="当前能力">
             <span>Word / PDF 简历上传</span>
             <span>JD 截图 OCR</span>
-            <span>规则分数稳定</span>
+            <span>基础规则 + LLM Gap</span>
             <span>默认 AI 或自带 Key</span>
           </div>
 
           <div class="version-strip" aria-label="版本状态">
             <span>v0.6</span>
-            <span id="runtime-status">Browser mode</span>
+            <span id="runtime-status">Connecting API</span>
           </div>
         </div>
       </section>
@@ -73,7 +75,7 @@
               <div class="command-title">
                 <p class="eyebrow">Step 2</p>
                 <h2 id="input-title">准备简历与目标 JD</h2>
-                <p class="run-note" id="run-note">关键词库加载中</p>
+                <p class="run-note" id="run-note">云端 API 连接中</p>
               </div>
 
               <div class="command-tools" aria-label="输入工具栏">
@@ -136,7 +138,7 @@
             <div class="command-title">
               <p class="eyebrow">Step 3</p>
               <h2 id="result-title">分析结果</h2>
-              <p>稳定规则分数先给判断，AI 建议作为可选增强层。</p>
+              <p>基础规则分先给快速判断，LLM 负责语义权重和 gap evidence。</p>
             </div>
             <div class="tool-group action-tools">
               <button class="button secondary" id="copy-json" type="button" disabled>复制 JSON</button>
@@ -168,25 +170,25 @@
               </section>
 
               <section class="result-block suggestions" aria-labelledby="suggestion-title" hidden>
-                <h3 id="suggestion-title">规则建议</h3>
+                <h3 id="suggestion-title">基础规则建议</h3>
                 <ol id="suggestion-list"></ol>
               </section>
             </div>
 
             <div class="result-right">
               <section class="result-block priority-gaps" aria-labelledby="priority-title">
-                <h3 id="priority-title">Gap Evidence</h3>
+                <h3 id="priority-title">基础 Gap Evidence</h3>
                 <div class="priority-list" id="priority-list"></div>
               </section>
 
               <div class="result-grid">
                 <section class="result-block" aria-labelledby="matched-title">
-                  <h3 id="matched-title">已匹配关键词</h3>
+                  <h3 id="matched-title">基础匹配项</h3>
                   <div class="pill-list" id="matched-list"></div>
                 </section>
 
                 <section class="result-block" aria-labelledby="missing-title">
-                  <h3 id="missing-title">缺失关键词</h3>
+                  <h3 id="missing-title">基础缺口项</h3>
                   <div class="pill-list" id="missing-list"></div>
                 </section>
               </div>
@@ -248,6 +250,56 @@
           </section>
         </section>
       </section>
+
+      <section class="page-view workspace history-page" id="history" data-view="history" aria-labelledby="history-title" hidden>
+        <button class="page-back" type="button" data-page-link="start" aria-label="返回首页">← 返回首页</button>
+
+        <section class="result-panel" aria-labelledby="history-title">
+          <div class="command-bar result-command-bar">
+            <div class="command-title">
+              <p class="eyebrow">Account History</p>
+              <h2 id="history-title">分析历史</h2>
+              <p>登录后可以保存并回看你过去的简历与岗位匹配分析结果。</p>
+            </div>
+            <div class="tool-group action-tools">
+              <button class="button secondary" id="history-refresh" type="button">刷新</button>
+            </div>
+          </div>
+          <p class="history-status" id="history-status">登录后可查看历史记录。</p>
+          <div class="history-list" id="history-list"></div>
+        </section>
+      </section>
+
+      <section class="page-view workspace privacy-page" id="privacy" data-view="privacy" aria-labelledby="privacy-title" hidden>
+        <button class="page-back" type="button" data-page-link="start" aria-label="返回首页">← 返回首页</button>
+
+        <section class="result-panel privacy-panel" aria-labelledby="privacy-title">
+          <div class="command-title">
+            <p class="eyebrow">Privacy</p>
+            <h2 id="privacy-title">隐私说明</h2>
+            <p>这个页面先用最清晰的方式说明当前 MVP 会保存什么，以及你可以如何删除自己的数据。</p>
+          </div>
+
+          <div class="privacy-list">
+            <section class="result-block">
+              <h3>我们会保存什么</h3>
+              <p>我们会保存你的账号信息和分析历史。分析历史包括简历文本、岗位 JD、匹配分数、优势、缺口建议和创建时间。</p>
+            </section>
+            <section class="result-block">
+              <h3>我们不会公开什么</h3>
+              <p>我们不会公开你的简历内容，也不会让其他用户看到你的分析记录。每个用户只能读取和删除自己的历史记录。</p>
+            </section>
+            <section class="result-block">
+              <h3>你可以删除什么</h3>
+              <p>你可以在 History 页面删除自己的单条分析记录。删除后，这条记录会从数据库中移除。</p>
+            </section>
+            <section class="result-block">
+              <h3>请不要上传</h3>
+              <p>请不要上传身份证、护照、银行卡、完整住址、验证码等敏感信息。简历里如有不必要的隐私字段，建议先手动删除再分析。</p>
+            </section>
+          </div>
+        </section>
+      </section>
     </main>
 
     <div class="example-modal" id="example-modal" hidden>
@@ -297,7 +349,7 @@
           </div>
           <button class="button ghost" id="auth-close" type="button">关闭</button>
         </div>
-        <p class="auth-copy">账户系统用于后续保存分析历史和控制 AI 使用额度。当前版本不会默认保存你的简历原文。</p>
+        <p class="auth-copy">账户系统用于保存分析历史。登录后完成分析会保存简历文本、岗位 JD 和分析结果；游客模式不会保存历史。</p>
         <label class="field">
           <span>Email</span>
           <input id="auth-email" type="email" autocomplete="email" required>
@@ -315,6 +367,6 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script src="assets/app.js?v=11"></script>
+    <script src="assets/app.js?v=12"></script>
   </body>
 </html>

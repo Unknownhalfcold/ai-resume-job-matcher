@@ -8,6 +8,7 @@ from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from api.auth_service import (
@@ -18,7 +19,7 @@ from api.auth_service import (
     require_current_user,
     revoke_access_token,
 )
-from api.database import User, get_database_metadata, get_database_session, initialize_database
+from api.database import AnalysisHistory, User, get_database_metadata, get_database_session, initialize_database
 from api.document_parser import DocumentParseError, extract_resume_text
 from api.llm_advisor import (
     LLMConfigurationError,
@@ -68,6 +69,15 @@ class AuthRequest(BaseModel):
     password: str = Field(..., min_length=8, max_length=128)
 
 
+class HistoryCreateRequest(BaseModel):
+    resume_text: str = Field(..., min_length=1, max_length=120000)
+    job_description: str = Field(..., min_length=1, max_length=60000)
+    match_score: int = Field(..., ge=0, le=100)
+    strengths: list[str] = Field(default_factory=list, max_length=30)
+    weaknesses: list[str] = Field(default_factory=list, max_length=30)
+    suggestions: list[str] = Field(default_factory=list, max_length=30)
+
+
 class UTF8JSONResponse(JSONResponse):
     media_type = "application/json; charset=utf-8"
 
@@ -97,7 +107,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=get_allowed_origins(),
     allow_credentials=False,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["Content-Type", "Authorization"],
 )
 
@@ -111,6 +121,20 @@ def serialize_user(user: User) -> dict[str, Any]:
         "email": user.email,
         "created_at": user.created_at.isoformat(),
         "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
+    }
+
+
+def serialize_history_record(record: AnalysisHistory) -> dict[str, Any]:
+    return {
+        "id": record.id,
+        "user_id": record.user_id,
+        "resume_text": record.resume_text,
+        "job_description": record.job_description,
+        "match_score": record.match_score,
+        "strengths": record.strengths or [],
+        "weaknesses": record.weaknesses or [],
+        "suggestions": record.suggestions or [],
+        "created_at": record.created_at.isoformat(),
     }
 
 
@@ -192,6 +216,64 @@ def logout(
     if authorization:
         token = get_bearer_token(authorization)
         revoke_access_token(session, token)
+    return {"ok": True}
+
+
+@app.post("/api/history")
+def create_history_record(
+    payload: HistoryCreateRequest,
+    current_user: User = Depends(current_user_dependency),
+    session: Session = Depends(get_database_session),
+) -> dict[str, Any]:
+    record = AnalysisHistory(
+        user_id=current_user.id,
+        resume_text=payload.resume_text,
+        job_description=payload.job_description,
+        match_score=payload.match_score,
+        strengths=payload.strengths,
+        weaknesses=payload.weaknesses,
+        suggestions=payload.suggestions,
+    )
+    session.add(record)
+    session.commit()
+    session.refresh(record)
+    return {
+        "record": serialize_history_record(record),
+    }
+
+
+@app.get("/api/history")
+def list_history_records(
+    current_user: User = Depends(current_user_dependency),
+    session: Session = Depends(get_database_session),
+) -> dict[str, Any]:
+    records = session.scalars(
+        select(AnalysisHistory)
+        .where(AnalysisHistory.user_id == current_user.id)
+        .order_by(AnalysisHistory.created_at.desc(), AnalysisHistory.id.desc())
+    ).all()
+    return {
+        "records": [serialize_history_record(record) for record in records],
+    }
+
+
+@app.delete("/api/history/{record_id}")
+def delete_history_record(
+    record_id: int,
+    current_user: User = Depends(current_user_dependency),
+    session: Session = Depends(get_database_session),
+) -> dict[str, Any]:
+    record = session.scalar(
+        select(AnalysisHistory).where(
+            AnalysisHistory.id == record_id,
+            AnalysisHistory.user_id == current_user.id,
+        )
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="Analysis history record not found.")
+
+    session.delete(record)
+    session.commit()
     return {"ok": True}
 
 

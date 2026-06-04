@@ -13,6 +13,10 @@ AI Resume Job Matcher 是一个简历与岗位匹配度分析工具。
 
 [https://unknownhalfcold.github.io/ai-resume-job-matcher/](https://unknownhalfcold.github.io/ai-resume-job-matcher/)
 
+云端后端 API：
+
+[https://ai-resume-job-matcher-api.onrender.com](https://ai-resume-job-matcher-api.onrender.com)
+
 ## 核心能力
 
 - 对比简历文本与岗位 JD
@@ -30,13 +34,16 @@ AI Resume Job Matcher 是一个简历与岗位匹配度分析工具。
 - 支持用户自带 API Key 的 BYOK 模式
 - 提供基础用户注册、登录和 session token
 - 支持本地 SQLite 与云端 Postgres 数据库
+- 登录用户完成分析后，可保存并回看自己的分析历史
+- History 页面支持删除自己的单条分析记录
+- 提供隐私说明页面，提醒用户不要上传身份证、护照、银行卡等敏感信息
 - 提供网页交互界面
 - 提供 FastAPI 后端接口
 - 支持文本报告与 JSON 输出
 
 ## 当前版本范围
 
-当前 Web 版本支持直接粘贴简历和岗位 JD 进行分析；Python 版本支持本地文本文件输入。后端已经加入基础账户系统，未设置 `DATABASE_URL` 时使用本地 SQLite，云端部署时建议连接 Postgres。LLM 建议层为可选能力，只有配置后端环境变量 `LLM_API_KEY` 或 `OPENAI_API_KEY` 后才会调用外部 AI API。
+当前 Web 版本支持直接粘贴简历和岗位 JD 进行分析；Python 版本支持本地文本文件输入。后端已经加入基础账户系统，未设置 `DATABASE_URL` 时使用本地 SQLite，云端部署时建议连接 Postgres。登录用户完成分析后会保存分析历史；游客可以使用分析功能，但不会保存历史记录。LLM 建议层为可选能力，只有配置后端环境变量 `LLM_API_KEY` 或 `OPENAI_API_KEY` 后才会调用外部 AI API。
 
 已完成：
 
@@ -55,16 +62,42 @@ AI Resume Job Matcher 是一个简历与岗位匹配度分析工具。
 - 三段式页面流程和加载进度
 - 可选 LLM 建议层接口
 - 基础用户注册、登录、退出和当前用户接口
-- 数据库连接层和 Render 部署配置
+- 数据库连接层、用户表、session 表和分析历史表
+- History 页面展示当前用户的历史分析记录
+- 用户可以删除自己的历史记录
+- Privacy 页面展示基础隐私说明
+- Render 部署配置
 - Render 云端后端、Postgres 数据库和 DeepSeek 默认 LLM 连接
 - 产品需求、评分逻辑和路线图文档
 
 暂未包含：
 
 - 邮箱验证码和找回密码
-- 分析历史保存
 - 扫描版 PDF OCR
 - 会员、支付和简历版本管理
+
+## 账户、历史和隐私
+
+当前项目已经接入基础数据库。数据库包含三类核心数据：
+
+- `users`：保存用户邮箱、密码哈希和登录时间
+- `auth_sessions`：保存登录 session token 的哈希，用于识别当前用户
+- `analysis_history`：保存登录用户的分析历史
+
+登录用户完成一次分析后，前端会把结果保存到后端数据库。保存字段包括：
+
+```text
+user_id, resume_text, job_description, match_score, strengths, weaknesses, suggestions, created_at
+```
+
+用户只能读取自己的历史记录，也只能删除自己的记录。游客模式不会保存分析历史。
+
+隐私边界：
+
+- 我们会保存你的账号信息和分析历史
+- 我们不会公开你的简历内容
+- 你可以在 History 页面删除自己的分析记录
+- 请不要上传身份证、护照、银行卡、验证码等敏感信息
 
 ## 快速运行
 
@@ -163,7 +196,7 @@ py -X utf8 scripts/analyze_match.py --resume local_inputs/my_resume.txt --job lo
 - `assets/app.js`：浏览器端匹配逻辑
 - `data/keywords.json`：共享关键词配置
 - `api/server.py`：FastAPI 后端接口
-- `api/database.py`：数据库连接和用户/session 表
+- `api/database.py`：数据库连接、用户/session 表和分析历史表
 - `api/auth_service.py`：注册、登录、密码哈希和 token 管理
 - `api/document_parser.py`：DOCX/PDF 文本提取
 - `api/llm_advisor.py`：LLM 建议层
@@ -188,5 +221,5 @@ py -X utf8 scripts/analyze_match.py --resume local_inputs/my_resume.txt --job lo
 1. 将 FastAPI 后端部署到 Render
 2. 将云端后端连接到 Neon Postgres
 3. 把 GitHub Pages 前端默认 API 地址指向云端后端
-4. 增加分析历史保存和用户额度控制
-5. 扩展关键词库和 LLM 建议质量
+4. 增加用户额度控制和 LLM 成本限制
+5. 扩展 LLM 语义评分、关键词权重解释和建议质量

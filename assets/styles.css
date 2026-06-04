@@ -1156,6 +1156,104 @@ select:focus {
   background: rgba(181, 106, 0, 0.08);
 }
 
+.history-status {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.history-list,
+.privacy-list {
+  display: grid;
+  gap: 12px;
+}
+
+.history-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: #fbfbfd;
+}
+
+.history-card-top,
+.history-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.history-score {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  color: var(--blue);
+  font-weight: 760;
+}
+
+.history-score strong {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.history-date {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.history-snippet {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.history-snippet p {
+  min-width: 0;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  color: var(--muted);
+  background: #ffffff;
+  font-size: 13px;
+  line-height: 1.58;
+}
+
+.history-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.history-tags span {
+  padding: 6px 9px;
+  border: 1px solid rgba(0, 113, 227, 0.16);
+  border-radius: 999px;
+  color: var(--muted);
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.privacy-panel .command-title {
+  margin-bottom: 18px;
+}
+
+.privacy-list .result-block {
+  margin: 0;
+}
+
+.privacy-list p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
 .empty-state {
   color: var(--muted);
   font-size: 13px;
@@ -1386,6 +1484,7 @@ select:focus {
   .text-grid,
   .result-grid,
   .category-grid,
+  .history-snippet,
   .ai-settings {
     grid-template-columns: 1fr;
   }
@@ -1478,6 +1577,8 @@ select:focus {
 
   .panel-heading,
   .ai-advice-heading,
+  .history-card-top,
+  .history-actions,
   .command-tools,
   .tool-group {
     align-items: stretch;
