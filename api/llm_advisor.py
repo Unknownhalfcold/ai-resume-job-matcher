@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 
 DEFAULT_LLM_MODEL = "gpt-5.5"
-DEFAULT_MAX_OUTPUT_TOKENS = 3800
+DEFAULT_MAX_OUTPUT_TOKENS = 5200
 MAX_JOB_OCR_CANDIDATE_CHARS = 6000
 
 APIStyle = Literal["responses", "chat_completions"]
@@ -30,6 +30,14 @@ LLM_ANALYSIS_CONTRACT: dict[str, Any] = {
         "and collaboration are usually not hard scoring dimensions. Unless the JD asks for concrete evidence "
         "such as cross-functional delivery, stakeholder management, or project ownership, classify them as "
         "nice_to_have with weight 1-2, do not mark them as high-impact gaps, and do not let them affect rule_score."
+    ),
+    "hybrid_score_policy": (
+        "The backend may calculate an advisory hybrid score using 65% rule score, 30% weighted semantic evidence, "
+        "and up to 5 points of verified job-relevant credential bonus. The LLM must not output its own final score."
+    ),
+    "company_context_policy": (
+        "Company name, company scale, and historical hiring context may only be used when explicitly present in "
+        "the user-provided JD or resume. Never invent prior hiring cases or claim external verification."
     ),
 }
 
@@ -132,6 +140,46 @@ class RewriteExampleItem(BaseModel):
     why_better: str
 
 
+class CredentialReviewItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    credential_type: Literal["certificate", "award"]
+    relevance_score: int = Field(ge=0, le=100)
+    credibility: Literal["high", "medium", "low", "unverified"]
+    score_bonus: int = Field(ge=0, le=5)
+    rationale: str
+
+
+class CompanyRoleContext(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    company_name: str
+    company_scale: Literal["large", "medium", "small", "startup", "unknown"]
+    role_title: str
+    context_source: Literal["job_description", "user_provided", "unknown"]
+    hiring_context_summary: str
+    historical_hiring_evidence: str
+    confidence: int = Field(ge=0, le=100)
+
+
+class ApplicationFormGuidance(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    keep_in_resume: list[str] = Field(max_length=8)
+    usually_form_only: list[str] = Field(max_length=10)
+    avoid_duplicate_items: list[str] = Field(max_length=8)
+
+
+class HRPerspective(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    screening_decision: Literal["strong_pass", "borderline", "weak_pass", "reject"]
+    first_screen_strengths: list[str] = Field(max_length=6)
+    first_screen_concerns: list[str] = Field(max_length=6)
+    likely_interview_questions: list[str] = Field(max_length=6)
+
+
 class AdvicePayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -142,6 +190,10 @@ class AdvicePayload(BaseModel):
     quantified_gaps: list[QuantifiedGapItem] = Field(min_length=2, max_length=6)
     top_actions: list[TopActionItem] = Field(min_length=3, max_length=5)
     rewrite_examples: list[RewriteExampleItem] = Field(min_length=1, max_length=3)
+    credential_review: list[CredentialReviewItem] = Field(max_length=8)
+    company_role_context: CompanyRoleContext
+    application_form_guidance: ApplicationFormGuidance
+    hr_perspective: HRPerspective
 
 
 class JobNormalizationPayload(BaseModel):
@@ -202,6 +254,10 @@ ADVICE_SCHEMA: dict[str, Any] = {
         "quantified_gaps",
         "top_actions",
         "rewrite_examples",
+        "credential_review",
+        "company_role_context",
+        "application_form_guidance",
+        "hr_perspective",
     ],
     "properties": {
         "summary": {
@@ -402,6 +458,114 @@ ADVICE_SCHEMA: dict[str, Any] = {
                 },
             },
         },
+        "credential_review": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": [
+                    "name",
+                    "credential_type",
+                    "relevance_score",
+                    "credibility",
+                    "score_bonus",
+                    "rationale",
+                ],
+                "properties": {
+                    "name": {"type": "string"},
+                    "credential_type": {"type": "string", "enum": ["certificate", "award"]},
+                    "relevance_score": {"type": "integer", "minimum": 0, "maximum": 100},
+                    "credibility": {
+                        "type": "string",
+                        "enum": ["high", "medium", "low", "unverified"],
+                    },
+                    "score_bonus": {"type": "integer", "minimum": 0, "maximum": 5},
+                    "rationale": {"type": "string"},
+                },
+            },
+        },
+        "company_role_context": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "company_name",
+                "company_scale",
+                "role_title",
+                "context_source",
+                "hiring_context_summary",
+                "historical_hiring_evidence",
+                "confidence",
+            ],
+            "properties": {
+                "company_name": {"type": "string"},
+                "company_scale": {
+                    "type": "string",
+                    "enum": ["large", "medium", "small", "startup", "unknown"],
+                },
+                "role_title": {"type": "string"},
+                "context_source": {
+                    "type": "string",
+                    "enum": ["job_description", "user_provided", "unknown"],
+                },
+                "hiring_context_summary": {"type": "string"},
+                "historical_hiring_evidence": {"type": "string"},
+                "confidence": {"type": "integer", "minimum": 0, "maximum": 100},
+            },
+        },
+        "application_form_guidance": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["keep_in_resume", "usually_form_only", "avoid_duplicate_items"],
+            "properties": {
+                "keep_in_resume": {
+                    "type": "array",
+                    "maxItems": 8,
+                    "items": {"type": "string"},
+                },
+                "usually_form_only": {
+                    "type": "array",
+                    "maxItems": 10,
+                    "items": {"type": "string"},
+                },
+                "avoid_duplicate_items": {
+                    "type": "array",
+                    "maxItems": 8,
+                    "items": {"type": "string"},
+                },
+            },
+        },
+        "hr_perspective": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "screening_decision",
+                "first_screen_strengths",
+                "first_screen_concerns",
+                "likely_interview_questions",
+            ],
+            "properties": {
+                "screening_decision": {
+                    "type": "string",
+                    "enum": ["strong_pass", "borderline", "weak_pass", "reject"],
+                },
+                "first_screen_strengths": {
+                    "type": "array",
+                    "maxItems": 6,
+                    "items": {"type": "string"},
+                },
+                "first_screen_concerns": {
+                    "type": "array",
+                    "maxItems": 6,
+                    "items": {"type": "string"},
+                },
+                "likely_interview_questions": {
+                    "type": "array",
+                    "maxItems": 6,
+                    "items": {"type": "string"},
+                },
+            },
+        },
     },
 }
 
@@ -467,7 +631,11 @@ SYSTEM_INSTRUCTIONS = """
 7. 不要编造用户没有提供的经历、公司、数字、证书或结果。
 8. 如果简历缺少证据，请明确指出“需要补充”，不要替用户虚构。
 9. 对“沟通能力、团队协作、责任心、抗压能力、学习能力、执行力”等软性要求要降权处理。
-10. 输出必须是符合 schema 的中文 JSON。
+10. 识别简历中明确出现的证书和获奖情况，判断与岗位的相关性、可信度和有限加分；无法核验时标记 unverified 且 score_bonus 必须为 0。
+11. 以该 JD 对应公司的招聘 HR 初筛视角审阅简历，但只能使用用户提供的公司名称、岗位名称、公司规模和招聘上下文。
+12. 不得编造公司的历史招聘案例。如果用户材料中没有先前招聘案例，historical_hiring_evidence 必须明确写“用户材料未提供，无法核验”。
+13. 区分“应写在简历里的证明材料”和“通常由招聘网站表单单独收集的信息”。
+14. 输出必须是符合 schema 的中文 JSON。
 
 评分稳定性原则：
 - 规则匹配层负责稳定分数。
@@ -485,6 +653,25 @@ SYSTEM_INSTRUCTIONS = """
 - 只有当 JD 明确要求可验证的协作成果，例如“跨部门推动项目落地”“管理 stakeholder”“组织项目排期和复盘”，才可以把它归为 important。
 - 不要因为简历没有直写“沟通能力强/团队协作好”就给高 gap_score；应检查简历是否有项目推进、协作交付、沟通对齐等间接证据。
 - 软性要求不得改变、覆盖或重算 rule_score。
+
+证书与获奖规则：
+- 只分析简历明确出现的证书或奖项，不得补全用户未提供的等级、主办方、名次或获奖比例。
+- 相关性优先于知名度。与岗位无关的证书或奖项 score_bonus 为 0。
+- 只有名称、颁发机构、级别或获奖结果足够明确时才允许 credibility 为 high / medium / low。
+- 无法从用户文本核验含金量时 credibility 必须为 unverified，score_bonus 必须为 0。
+- 全部证书和奖项合计最多只能为增强参考分贡献 5 分。
+
+公司与具体岗位规则：
+- company_name、role_title 和 company_scale 只能来自用户提供的 JD 或简历；不确定时输出 unknown 或空字符串。
+- 不能假装访问过该公司的官网、招聘网站、往年面经或内部招聘数据。
+- 如果用户材料明确包含公司规模、岗位名称或历史招聘案例，可以用于分析；否则只按当前 JD 判断。
+- HR 视角是模拟初筛，不代表该公司的真实录用结论。
+
+招聘表单与简历边界：
+- 简历应保留能证明能力的教育、项目、实习、技能、证书、奖项和量化成果。
+- 通常由招聘网站单独收集的字段，不要建议用户重复塞进简历正文：可到岗日期、每周实习天数、可实习月份、期望薪资、工作地点偏好、身份证号、政治面貌、网申来源、是否接受调剂。
+- 姓名、常用邮箱和联系电话仍可以保留在简历页眉，不能一概删除。
+- 如果 JD 明确要求在简历注明某项安排，则以 JD 为准。
 
 合规与隐私边界：
 - 只分析用户提供的简历和 JD 文本，不访问、不抓取、不推断第三方网站内容。
@@ -685,6 +872,9 @@ def build_advice_input(resume_text: str, job_text: str, analysis: dict[str, Any]
             "固定规则：rule_score 是唯一最终匹配分数，不要重算、覆盖或新增最终分数。",
             "请对 JD 要求进行规范化，并给出重要程度 must_have / important / nice_to_have 与 1-5 权重。",
             "请对简历证据给出 0-100 evidence_score，对缺口给出 0-100 gap_score。",
+            "请识别简历中明确出现的证书和奖项；无法核验含金量时必须标记 unverified 且不得加分。",
+            "请模拟当前 JD 对应公司的 HR 初筛视角，但不得编造公司规模、历史招聘案例或外部事实。",
+            "请区分简历应保留的能力证据与通常由招聘网站表单单独收集的到岗安排等信息。",
             "【固定分析口径】",
             json.dumps(LLM_ANALYSIS_CONTRACT, ensure_ascii=False, indent=2),
             "【岗位 JD】",
@@ -822,9 +1012,19 @@ def parse_json_object(raw_text: str) -> dict[str, Any]:
 
 def validate_advice(raw_advice: dict[str, Any]) -> dict[str, Any]:
     try:
-        return AdvicePayload.model_validate(raw_advice).model_dump()
+        advice = AdvicePayload.model_validate(raw_advice).model_dump()
     except ValidationError as exc:
         raise LLMResponseError(f"Model returned invalid advice JSON: {exc}") from exc
+
+    remaining_credential_bonus = 5
+    for item in advice["credential_review"]:
+        if item["credibility"] == "unverified" or item["relevance_score"] < 60:
+            item["score_bonus"] = 0
+            continue
+        item["score_bonus"] = min(item["score_bonus"], remaining_credential_bonus)
+        remaining_credential_bonus -= item["score_bonus"]
+
+    return advice
 
 
 def validate_job_normalization(raw_payload: dict[str, Any]) -> dict[str, Any]:
@@ -832,6 +1032,64 @@ def validate_job_normalization(raw_payload: dict[str, Any]) -> dict[str, Any]:
         return JobNormalizationPayload.model_validate(raw_payload).model_dump()
     except ValidationError as exc:
         raise LLMResponseError(f"Model returned invalid JD normalization JSON: {exc}") from exc
+
+
+def calculate_hybrid_score(rule_score: int | float | None, advice: Mapping[str, Any]) -> dict[str, Any]:
+    stable_rule_score = max(0, min(100, int(round(float(rule_score or 0)))))
+    importance_weights = {
+        "must_have": 5,
+        "important": 3,
+        "nice_to_have": 1,
+    }
+
+    evidence_items = advice.get("evidence_review")
+    weighted_evidence = 0.0
+    total_evidence_weight = 0
+    if isinstance(evidence_items, list):
+        for item in evidence_items:
+            if not isinstance(item, Mapping):
+                continue
+            importance = str(item.get("importance") or "nice_to_have")
+            weight = importance_weights.get(importance, 1)
+            evidence_score = max(0, min(100, int(item.get("evidence_score") or 0)))
+            weighted_evidence += evidence_score * weight
+            total_evidence_weight += weight
+
+    semantic_evidence_score = (
+        round(weighted_evidence / total_evidence_weight)
+        if total_evidence_weight
+        else stable_rule_score
+    )
+
+    credential_bonus = 0
+    credential_items = advice.get("credential_review")
+    if isinstance(credential_items, list):
+        for item in credential_items:
+            if not isinstance(item, Mapping):
+                continue
+            credibility = str(item.get("credibility") or "unverified")
+            relevance_score = int(item.get("relevance_score") or 0)
+            if credibility == "unverified" or relevance_score < 60:
+                continue
+            credential_bonus += max(0, min(5, int(item.get("score_bonus") or 0)))
+    credential_bonus = min(5, credential_bonus)
+
+    hybrid_score_value = (
+        stable_rule_score * 0.65
+        + semantic_evidence_score * 0.30
+        + credential_bonus
+    )
+    hybrid_score = int(hybrid_score_value + 0.5)
+
+    return {
+        "score": max(0, min(100, hybrid_score)),
+        "rule_component": round(stable_rule_score * 0.65, 1),
+        "semantic_component": round(semantic_evidence_score * 0.30, 1),
+        "credential_bonus": credential_bonus,
+        "semantic_evidence_score": semantic_evidence_score,
+        "formula": "rule_score * 65% + semantic_evidence_score * 30% + credential_bonus (max 5)",
+        "is_advisory": True,
+    }
 
 
 def generate_with_responses_api(
@@ -904,7 +1162,7 @@ def generate_with_chat_completions(
                         [
                             "上一次输出没有通过 JSON schema 校验，请重新生成完整 JSON。",
                             f"校验错误：{first_error}",
-                            "必须包含所有 required 字段，尤其是 normalized_job、scoring_rubric、evidence_review、quantified_gaps、top_actions、rewrite_examples。",
+                            "必须包含所有 required 字段，尤其是 normalized_job、scoring_rubric、evidence_review、quantified_gaps、top_actions、rewrite_examples、credential_review、company_role_context、application_form_guidance、hr_perspective。",
                             "每个字符串尽量控制在 80 个中文字符以内，避免输出被截断。",
                             build_chat_prompt(resume_text, job_text, analysis),
                         ]

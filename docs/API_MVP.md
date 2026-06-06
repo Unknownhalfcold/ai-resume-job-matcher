@@ -254,6 +254,19 @@ POST /api/normalize/job
 - `normalized_job.technical_questions`
 - `normalized_job.confidence`
 
+## JD 文档提取接口
+
+接口：
+
+```text
+POST /api/extract/job
+```
+
+用途：
+
+- 提取 DOCX 或可复制文本 PDF 中的岗位描述
+- 前端可以将多个文档和截图文本合并后，再调用 `/api/normalize/job`
+
 ## 前端调用方式
 
 本地打开前端：

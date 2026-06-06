@@ -296,6 +296,20 @@ function isImageFile(file) {
   return file.type.startsWith("image/") || /\.(png|jpe?g|webp)$/i.test(file.name);
 }
 
+function isJdDocumentFile(file) {
+  const name = file.name.toLowerCase();
+  return (
+    name.endsWith(".docx")
+    || name.endsWith(".pdf")
+    || file.type === "application/pdf"
+    || file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  );
+}
+
+function isJdFile(file) {
+  return isImageFile(file) || isJdDocumentFile(file);
+}
+
 function findClipboardFile(event, matcher) {
   const files = [...(event.clipboardData?.files || [])];
   const file = files.find(matcher);
@@ -313,9 +327,23 @@ function findClipboardFile(event, matcher) {
   return null;
 }
 
+function findClipboardFiles(event, matcher) {
+  const files = [...(event.clipboardData?.files || [])].filter(matcher);
+  if (files.length) return files;
+
+  return [...(event.clipboardData?.items || [])]
+    .filter((item) => item.kind === "file")
+    .map((item) => item.getAsFile())
+    .filter((file) => file && matcher(file));
+}
+
 function findDroppedFile(event, matcher) {
   const files = [...(event.dataTransfer?.files || [])];
   return files.find(matcher) || null;
+}
+
+function findDroppedFiles(event, matcher) {
+  return [...(event.dataTransfer?.files || [])].filter(matcher);
 }
 
 function normalizeFileName(file, fallback) {
@@ -437,31 +465,63 @@ async function handleResumeFile(file, source = "上传") {
   }
 }
 
-async function handleJdImage(file, source = "上传") {
-  showLoading("正在识别 JD 截图");
-  updateProgress(10, "加载 OCR", "正在准备浏览器端 OCR");
+async function handleJdFiles(inputFiles, source = "上传") {
+  const files = [...inputFiles].filter(isJdFile).slice(0, 6);
+  if (!files.length) return;
+
+  showLoading("正在读取多个 JD 文件");
+  updateProgress(8, "准备 JD", `准备处理 ${files.length} 个文件`);
 
   try {
-    const text = await extractTextFromJdImage(file);
-    if (!text) {
-      throw new Error("截图中没有识别到文字，请换一张更清晰的截图，或直接粘贴 JD 文本。");
+    const extractedParts = [];
+    const warnings = [];
+
+    for (let index = 0; index < files.length; index += 1) {
+      const file = files[index];
+      const baseProgress = 10 + Math.round((index / files.length) * 68);
+      updateProgress(baseProgress, `读取 JD ${index + 1}/${files.length}`, file.name || "剪贴板文件");
+
+      if (isImageFile(file)) {
+        const text = await extractTextFromJdImage(file);
+        if (!text) {
+          warnings.push(`${file.name || `截图 ${index + 1}`} 未识别到文字`);
+          continue;
+        }
+        extractedParts.push(`【来源：${file.name || `JD 截图 ${index + 1}`}】\n${text}`);
+      } else {
+        const result = await extractJobDocument(file);
+        extractedParts.push(`【来源：${result.filename || file.name}】\n${result.text}`);
+        if (result.warnings?.length) warnings.push(...result.warnings);
+      }
     }
+
+    if (!extractedParts.length) {
+      throw new Error("没有从上传的 JD 文件中提取到文字。");
+    }
+
+    const existingText = elements.jobInput.value.trim();
+    const combinedText = [existingText, ...extractedParts].filter(Boolean).join("\n\n").slice(0, 20000);
+    const sourceLabel = `${source}${files.length} 个 JD 文件`;
+
     if (state.apiAvailable && state.llmConfigured) {
       try {
-        updateProgress(92, "LLM 清洗 JD", "正在从 OCR 文本中提取岗位职责和要求");
-        const normalized = await normalizeJobTextViaApi(text);
-        applyNormalizedJobText(normalized, source === "粘贴" ? "粘贴截图" : "JD 截图");
+        updateProgress(88, "LLM 合并 JD", "正在合并职责、岗位要求、加分项和技术问题");
+        const normalized = await normalizeJobTextViaApi(combinedText);
+        applyNormalizedJobText(normalized, sourceLabel);
       } catch (normalizationError) {
-        applyCleanedJobText(text, source === "粘贴" ? "粘贴截图" : "JD 截图");
-        elements.runNote.textContent = `LLM 清洗失败，已使用规则清洗：${normalizationError.message}`;
+        applyCleanedJobText(combinedText, sourceLabel);
+        elements.runNote.textContent = `LLM 合并失败，已使用规则清洗：${normalizationError.message}`;
       }
     } else {
-      applyCleanedJobText(text, source === "粘贴" ? "粘贴截图" : "JD 截图");
+      applyCleanedJobText(combinedText, sourceLabel);
     }
-    updateProgress(100, "JD 已识别", `已提取 ${text.length} 个字符`);
+
+    const warningText = warnings.length ? `；${warnings.join("；")}` : "";
+    setInputStatus("jd", `${files.length} 个 JD 文件已合并`, `${files.map((file) => file.name || "剪贴板图片").join("、")}${warningText}`);
+    updateProgress(100, "JD 已合并", `已处理 ${files.length} 个文件`);
   } catch (error) {
     elements.runNote.textContent = error.message;
-    updateProgress(100, "OCR 失败", error.message);
+    updateProgress(100, "JD 读取失败", error.message);
   } finally {
     window.setTimeout(hideLoading, 900);
     elements.jdImageFile.value = "";
@@ -1002,6 +1062,25 @@ async function extractResumeFile(file) {
   );
 }
 
+async function extractJobDocument(file) {
+  const apiReady = await ensureApiAvailable();
+  if (!apiReady) {
+    throw new Error("云端 API 暂时未连接，DOCX/PDF 岗位文件无法解析。");
+  }
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  return fetchJsonWithTimeout(
+    `${state.apiBaseUrl}/api/extract/job`,
+    {
+      method: "POST",
+      body: formData,
+    },
+    30000,
+  );
+}
+
 async function extractTextFromJdImage(file) {
   if (!window.Tesseract) {
     throw new Error("OCR 组件加载失败，请检查网络后重试，或直接粘贴 JD 文本。");
@@ -1098,12 +1177,40 @@ function updateAiAdviceAvailability() {
   elements.aiAdviceButton.disabled = !canGenerateAiAdvice();
 }
 
+function getStoredAiAdvice(mode = getAiMode()) {
+  if (!state.lastResult) return null;
+  const storedByMode = state.lastResult.ai_advice_by_mode;
+  if (storedByMode) {
+    return storedByMode[mode] || null;
+  }
+
+  return mode === "default" ? state.lastResult.ai_advice || null : null;
+}
+
+function hasAnyStoredAiAdvice() {
+  if (!state.lastResult) return false;
+  return Boolean(
+    state.lastResult.ai_advice
+    || state.lastResult.ai_advice_by_mode?.default
+    || state.lastResult.ai_advice_by_mode?.byok,
+  );
+}
+
 function syncAiModeUi() {
   const byokMode = getAiMode() === "byok";
   document.querySelector(".ai-settings").hidden = !byokMode;
   updateAiAdviceAvailability();
   if (state.lastResult) {
-    renderAiAdvicePlaceholder(getAiAdvicePlaceholderMessage());
+    const storedAdvice = getStoredAiAdvice();
+    if (storedAdvice) {
+      renderAiAdvice(storedAdvice);
+    } else if (hasAnyStoredAiAdvice()) {
+      elements.aiAdviceStatus.textContent = byokMode
+        ? "已保留站点默认 LLM 的建议；填写自己的 API Key 后可生成另一份结果"
+        : "已保留自带 Key 生成的建议；可重新生成站点默认 LLM 结果";
+    } else {
+      renderAiAdvicePlaceholder(getAiAdvicePlaceholderMessage());
+    }
   }
 }
 
@@ -1328,6 +1435,37 @@ function impactText(impact) {
   return labels[impact] || impact;
 }
 
+function credibilityText(value) {
+  const labels = {
+    high: "可信度高",
+    medium: "可信度中等",
+    low: "可信度较低",
+    unverified: "无法核验",
+  };
+  return labels[value] || value;
+}
+
+function companyScaleText(value) {
+  const labels = {
+    large: "大型企业",
+    medium: "中型企业",
+    small: "小型企业",
+    startup: "初创企业",
+    unknown: "规模未知",
+  };
+  return labels[value] || value;
+}
+
+function screeningDecisionText(value) {
+  const labels = {
+    strong_pass: "较强通过倾向",
+    borderline: "边界候选",
+    weak_pass: "谨慎进入下一轮",
+    reject: "当前证据不足",
+  };
+  return labels[value] || value;
+}
+
 function createAdviceCard(title, bodyItems) {
   const card = document.createElement("article");
   card.className = "ai-card";
@@ -1350,13 +1488,49 @@ function renderAiAdvicePlaceholder(message) {
   elements.aiAdviceStatus.textContent = message;
 }
 
+function showAiAdviceMessage(message) {
+  if (hasAnyStoredAiAdvice()) {
+    elements.aiAdviceStatus.textContent = message;
+    return;
+  }
+  renderAiAdvicePlaceholder(message);
+}
+
 function renderAiAdvice(response) {
   const advice = response.advice;
+  const companyRoleContext = advice.company_role_context || {
+    company_name: "",
+    company_scale: "unknown",
+    role_title: advice.normalized_job?.role_title || "",
+    hiring_context_summary: "当前模型版本未返回公司语境。",
+    historical_hiring_evidence: "用户材料未提供，无法核验",
+  };
+  const applicationFormGuidance = advice.application_form_guidance || {
+    keep_in_resume: [],
+    usually_form_only: [],
+    avoid_duplicate_items: [],
+  };
+  const hrPerspectiveData = advice.hr_perspective || {
+    screening_decision: "borderline",
+    first_screen_strengths: [],
+    first_screen_concerns: [],
+    likely_interview_questions: [],
+  };
   elements.aiAdviceContent.replaceChildren();
   const providerLabel = response.provider ? `${response.provider} / ${response.model}` : response.model;
-  elements.aiAdviceStatus.textContent = `AI 建议已生成 · ${providerLabel} · 规则分数保持 ${response.rule_score}/100`;
+  const hybridScore = response.hybrid_score?.score;
+  elements.aiAdviceStatus.textContent = hybridScore === undefined
+    ? `AI 建议已生成 · ${providerLabel} · 规则分数保持 ${response.rule_score}/100`
+    : `AI 建议已生成 · ${providerLabel} · 稳定规则分 ${response.rule_score}/100 · 增强参考分 ${hybridScore}/100`;
 
   const summary = createAdviceCard("整体判断", [advice.summary]);
+
+  const hybrid = response.hybrid_score
+    ? createAdviceCard("增强参考分", [
+        `${response.hybrid_score.score}/100（仅作辅助，不替代稳定规则分）`,
+        `规则贡献 ${response.hybrid_score.rule_component} + 语义证据贡献 ${response.hybrid_score.semantic_component} + 证书/获奖加成 ${response.hybrid_score.credential_bonus}`,
+      ])
+    : null;
 
   const normalizedJob = createAdviceCard(
     "JD 规范化",
@@ -1411,6 +1585,36 @@ function renderAiAdvice(response) {
     advice.rewrite_examples.map((item) => `Before：${item.before}\nAfter：${item.after}\n为什么更好：${item.why_better}`),
   );
 
+  const credentials = createAdviceCard(
+    "证书与获奖判断",
+    advice.credential_review?.length
+      ? advice.credential_review.map(
+          (item) =>
+            `${item.credential_type === "award" ? "奖项" : "证书"}｜${item.name}｜相关性 ${item.relevance_score}/100｜${credibilityText(item.credibility)}｜加成 ${item.score_bonus}：${item.rationale}`,
+        )
+      : ["简历中未识别到可评估的证书或奖项。"],
+  );
+
+  const companyContext = createAdviceCard("公司与岗位语境", [
+    `公司：${companyRoleContext.company_name || "未提供"}｜${companyScaleText(companyRoleContext.company_scale)}`,
+    `岗位：${companyRoleContext.role_title || advice.normalized_job.role_title}`,
+    companyRoleContext.hiring_context_summary,
+    `历史招聘依据：${companyRoleContext.historical_hiring_evidence}`,
+  ]);
+
+  const applicationGuidance = createAdviceCard("网申表单与简历边界", [
+    `建议保留在简历：${applicationFormGuidance.keep_in_resume.join("；") || "无额外建议"}`,
+    `通常由网申表单填写：${applicationFormGuidance.usually_form_only.join("；") || "无"}`,
+    `避免重复堆入简历：${applicationFormGuidance.avoid_duplicate_items.join("；") || "无"}`,
+  ]);
+
+  const hrPerspective = createAdviceCard("目标公司 HR 初筛视角", [
+    `初筛判断：${screeningDecisionText(hrPerspectiveData.screening_decision)}`,
+    `优点：${hrPerspectiveData.first_screen_strengths.join("；") || "暂无明确证据"}`,
+    `顾虑：${hrPerspectiveData.first_screen_concerns.join("；") || "暂无"}`,
+    `可能追问：${hrPerspectiveData.likely_interview_questions.join("；") || "暂无"}`,
+  ]);
+
   const contract = response.analysis_contract
     ? createAdviceCard("分析边界", [
         response.analysis_contract.final_score_policy,
@@ -1422,11 +1626,16 @@ function renderAiAdvice(response) {
 
   elements.aiAdviceContent.append(
     summary,
+    ...(hybrid ? [hybrid] : []),
     normalizedJob,
     requirements,
     rubric,
     evidence,
     quantifiedGaps,
+    credentials,
+    companyContext,
+    applicationGuidance,
+    hrPerspective,
     actions,
     rewrites,
     ...(contract ? [contract] : []),
@@ -1517,13 +1726,18 @@ async function detectBackend() {
     }
     if (state.lastResult) {
       updateAiAdviceAvailability();
-      renderAiAdvicePlaceholder(
-        canGenerateAiAdvice()
-          ? "基础分析已完成，可以生成 AI 建议"
-          : getAiMode() === "byok"
-            ? "后端在线，请填写自己的 API Key 启用 AI 建议"
-            : getAiAdvicePlaceholderMessage(),
-      );
+      const storedAdvice = getStoredAiAdvice();
+      if (storedAdvice) {
+        renderAiAdvice(storedAdvice);
+      } else if (!hasAnyStoredAiAdvice()) {
+        renderAiAdvicePlaceholder(
+          canGenerateAiAdvice()
+            ? "基础分析已完成，可以生成 AI 建议"
+            : getAiMode() === "byok"
+              ? "后端在线，请填写自己的 API Key 启用 AI 建议"
+              : getAiAdvicePlaceholderMessage(),
+        );
+      }
     }
   } catch (error) {
     state.apiBaseUrl = "";
@@ -1592,9 +1806,9 @@ function bindEvents() {
   });
 
   elements.jdImageFile.addEventListener("change", async () => {
-    const file = elements.jdImageFile.files?.[0];
-    if (!file) return;
-    await handleJdImage(file);
+    const files = [...(elements.jdImageFile.files || [])];
+    if (!files.length) return;
+    await handleJdFiles(files);
   });
 
   elements.resumeInput.addEventListener("paste", async (event) => {
@@ -1613,10 +1827,10 @@ function bindEvents() {
   });
 
   elements.jobInput.addEventListener("paste", async (event) => {
-    const imageFile = findClipboardFile(event, isImageFile);
-    if (imageFile) {
+    const jdFiles = findClipboardFiles(event, isJdFile);
+    if (jdFiles.length) {
       event.preventDefault();
-      await handleJdImage(imageFile, "粘贴");
+      await handleJdFiles(jdFiles, "粘贴");
       return;
     }
 
@@ -1628,9 +1842,9 @@ function bindEvents() {
   });
 
   [
-    [elements.resumeInput, "resume", isResumeFile, handleResumeFile],
-    [elements.jobInput, "jd", isImageFile, handleJdImage],
-  ].forEach(([input, target, matcher, handler]) => {
+    [elements.resumeInput, "resume", isResumeFile, handleResumeFile, false],
+    [elements.jobInput, "jd", isJdFile, handleJdFiles, true],
+  ].forEach(([input, target, matcher, handler, acceptsMultiple]) => {
     input.addEventListener("dragover", (event) => {
       event.preventDefault();
       input.classList.add("is-dragging");
@@ -1641,11 +1855,11 @@ function bindEvents() {
     });
 
     input.addEventListener("drop", async (event) => {
-      const file = findDroppedFile(event, matcher);
-      if (!file) return;
+      const files = findDroppedFiles(event, matcher);
+      if (!files.length) return;
       event.preventDefault();
       input.classList.remove("is-dragging");
-      await handler(file, "拖入");
+      await handler(acceptsMultiple ? files : files[0], "拖入");
     });
   });
 
@@ -1775,17 +1989,17 @@ function bindEvents() {
     const jobText = elements.jobInput.value.trim();
 
     if (!state.apiAvailable) {
-      renderAiAdvicePlaceholder("云端 API 暂未连接，请等待 Render 唤醒后重试。");
+      showAiAdviceMessage("云端 API 暂未连接，已保留现有建议；请等待 Render 唤醒后重试。");
       return;
     }
 
     if (!state.llmConfigured && !hasCompleteUserLlmConfig()) {
-      renderAiAdvicePlaceholder(getAiAdvicePlaceholderMessage());
+      showAiAdviceMessage(getAiAdvicePlaceholderMessage());
       return;
     }
 
     if (!state.lastResult || !resumeText || !jobText) {
-      renderAiAdvicePlaceholder("请先完成基础分析");
+      showAiAdviceMessage("请先完成基础分析");
       return;
     }
 
@@ -1794,11 +2008,16 @@ function bindEvents() {
 
     try {
       const response = await generateAiAdvice(resumeText, jobText, state.lastResult);
+      const adviceMode = getAiMode();
+      state.lastResult.ai_advice_by_mode = {
+        ...(state.lastResult.ai_advice_by_mode || {}),
+        [adviceMode]: response,
+      };
       state.lastResult.ai_advice = response;
       renderAiAdvice(response);
       elements.runNote.textContent = "AI 建议已生成";
     } catch (error) {
-      renderAiAdvicePlaceholder(`AI 建议生成失败：${error.message}`);
+      showAiAdviceMessage(`AI 建议生成失败，已保留现有结果：${error.message}`);
       elements.runNote.textContent = "AI 建议生成失败";
       console.error(error);
     } finally {
@@ -1818,7 +2037,7 @@ function bindEvents() {
   [elements.llmApiKey, elements.llmBaseUrl, elements.llmModel, elements.llmApiStyle].forEach((input) => {
     input.addEventListener("input", () => {
       updateAiAdviceAvailability();
-      if (state.lastResult && canGenerateAiAdvice()) {
+      if (state.lastResult && canGenerateAiAdvice() && !hasAnyStoredAiAdvice()) {
         renderAiAdvicePlaceholder(getAiAdvicePlaceholderMessage());
       }
     });

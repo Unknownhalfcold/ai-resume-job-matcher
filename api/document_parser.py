@@ -66,7 +66,7 @@ def extract_pdf_text(content: bytes) -> str:
     return compact_text("\n\n".join(parts))
 
 
-def extract_resume_text(filename: str, content: bytes) -> tuple[str, list[str]]:
+def extract_document_text(filename: str, content: bytes) -> tuple[str, list[str]]:
     extension = Path(filename).suffix.lower()
     warnings: list[str] = []
 
@@ -83,3 +83,7 @@ def extract_resume_text(filename: str, content: bytes) -> tuple[str, list[str]]:
         raise DocumentParseError("No text could be extracted from the uploaded file.")
 
     return text, warnings
+
+
+def extract_resume_text(filename: str, content: bytes) -> tuple[str, list[str]]:
+    return extract_document_text(filename, content)

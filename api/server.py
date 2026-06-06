@@ -20,9 +20,10 @@ from api.auth_service import (
     revoke_access_token,
 )
 from api.database import AnalysisHistory, User, get_database_metadata, get_database_session, initialize_database
-from api.document_parser import DocumentParseError, extract_resume_text
+from api.document_parser import DocumentParseError, extract_document_text, extract_resume_text
 from api.llm_advisor import (
     LLMConfigurationError,
+    calculate_hybrid_score,
     generate_advice,
     get_llm_analysis_contract,
     get_llm_config,
@@ -306,6 +307,26 @@ async def extract_resume(file: UploadFile = File(...)) -> dict[str, Any]:
     }
 
 
+@app.post("/api/extract/job")
+async def extract_job_document(file: UploadFile = File(...)) -> dict[str, Any]:
+    content = await file.read()
+
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Uploaded file is larger than 8 MB.")
+
+    try:
+        text, warnings = extract_document_text(file.filename or "", content)
+    except DocumentParseError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {
+        "filename": file.filename,
+        "text": text,
+        "character_count": len(text),
+        "warnings": warnings,
+    }
+
+
 @app.post("/api/normalize/job")
 def normalize_job(payload: JobNormalizationRequest) -> dict[str, Any]:
     config_override = payload.llm_config.model_dump(exclude_none=True) if payload.llm_config else None
@@ -347,6 +368,7 @@ def ai_suggestions(payload: AISuggestionsRequest) -> dict[str, Any]:
         "api_style": llm_config.api_style,
         "rule_score": analysis.get("score"),
         "rule_score_source": "keyword_weight_formula",
+        "hybrid_score": calculate_hybrid_score(analysis.get("score"), advice),
         "analysis_contract": get_llm_analysis_contract(),
         "advice": advice,
     }
