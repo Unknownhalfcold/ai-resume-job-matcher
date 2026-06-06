@@ -7,6 +7,10 @@ const state = {
   authToken: "",
   currentUser: null,
   historyRecords: [],
+  jdSources: [],
+  jdTextEditedByUser: false,
+  jdOcrWorkerPromise: null,
+  jdOcrProgressHandler: null,
 };
 
 const BACKEND_TIMEOUT_MS = 12000;
@@ -416,6 +420,7 @@ function cleanJobDescriptionText(rawText) {
 function applyCleanedJobText(rawText, sourceLabel = "JD 文本") {
   const cleaned = cleanJobDescriptionText(rawText);
   elements.jobInput.value = cleaned;
+  state.jdTextEditedByUser = false;
   const removed = rawText.trim().length - cleaned.trim().length;
   if (removed > 30) {
     setInputStatus("jd", `${sourceLabel}已导入`, `已自动清理约 ${removed} 个无关字符`);
@@ -433,11 +438,38 @@ function applyNormalizedJobText(response, sourceLabel = "JD 文本") {
   }
 
   elements.jobInput.value = cleaned;
+  state.jdTextEditedByUser = false;
   const questionCount = normalized.technical_questions?.length || 0;
   const roleText = normalized.role_title ? `${normalized.role_title} · ` : "";
   const detail = `${roleText}置信度 ${normalized.confidence}/100${questionCount ? ` · 技术问题 ${questionCount} 个` : ""}`;
   setInputStatus("jd", `${sourceLabel}已智能提取`, detail);
   elements.runNote.textContent = "已用 LLM 从 OCR 文本中提取 JD";
+}
+
+function getJdSourceKey(file) {
+  return [file.name || "clipboard-image", file.size || 0, file.lastModified || 0].join(":");
+}
+
+function addJdSources(newSources) {
+  const existingKeys = new Set(state.jdSources.map((source) => source.key));
+  for (const source of newSources) {
+    if (existingKeys.has(source.key)) continue;
+    state.jdSources.push(source);
+    existingKeys.add(source.key);
+  }
+  state.jdSources = state.jdSources.slice(0, 6);
+}
+
+function buildCombinedJdSourceText() {
+  const sourceBlocks = state.jdSources.map(
+    (source, index) => `【来源 ${index + 1}/${state.jdSources.length}：${source.name}】\n${source.rawText}`,
+  );
+
+  if (state.jdTextEditedByUser && elements.jobInput.value.trim()) {
+    sourceBlocks.unshift(`【用户补充或编辑的 JD 文本】\n${elements.jobInput.value.trim()}`);
+  }
+
+  return sourceBlocks.join("\n\n").slice(0, 50000);
 }
 
 async function handleResumeFile(file, source = "上传") {
@@ -466,14 +498,24 @@ async function handleResumeFile(file, source = "上传") {
 }
 
 async function handleJdFiles(inputFiles, source = "上传") {
-  const files = [...inputFiles].filter(isJdFile).slice(0, 6);
-  if (!files.length) return;
+  const availableSlots = Math.max(0, 6 - state.jdSources.length);
+  const existingKeys = new Set(state.jdSources.map((item) => item.key));
+  const files = [...inputFiles]
+    .filter(isJdFile)
+    .filter((file) => !existingKeys.has(getJdSourceKey(file)))
+    .slice(0, availableSlots);
+  if (!files.length) {
+    const title = availableSlots ? "这些 JD 文件已经添加" : "已达到 6 个 JD 来源上限";
+    const detail = availableSlots ? "请选择其他截图或文件" : "如需分析另一份岗位，请先点击“清空”";
+    setInputStatus("jd", title, detail);
+    return;
+  }
 
   showLoading("正在读取多个 JD 文件");
   updateProgress(8, "准备 JD", `准备处理 ${files.length} 个文件`);
 
   try {
-    const extractedParts = [];
+    const extractedSources = [];
     const warnings = [];
 
     for (let index = 0; index < files.length; index += 1) {
@@ -482,30 +524,38 @@ async function handleJdFiles(inputFiles, source = "上传") {
       updateProgress(baseProgress, `读取 JD ${index + 1}/${files.length}`, file.name || "剪贴板文件");
 
       if (isImageFile(file)) {
-        const text = await extractTextFromJdImage(file);
+        const text = await extractTextFromJdImage(file, index, files.length);
         if (!text) {
           warnings.push(`${file.name || `截图 ${index + 1}`} 未识别到文字`);
           continue;
         }
-        extractedParts.push(`【来源：${file.name || `JD 截图 ${index + 1}`}】\n${text}`);
+        extractedSources.push({
+          key: getJdSourceKey(file),
+          name: file.name || `JD 截图 ${state.jdSources.length + index + 1}`,
+          rawText: text,
+        });
       } else {
         const result = await extractJobDocument(file);
-        extractedParts.push(`【来源：${result.filename || file.name}】\n${result.text}`);
+        extractedSources.push({
+          key: getJdSourceKey(file),
+          name: result.filename || file.name,
+          rawText: result.text,
+        });
         if (result.warnings?.length) warnings.push(...result.warnings);
       }
     }
 
-    if (!extractedParts.length) {
+    if (!extractedSources.length) {
       throw new Error("没有从上传的 JD 文件中提取到文字。");
     }
 
-    const existingText = elements.jobInput.value.trim();
-    const combinedText = [existingText, ...extractedParts].filter(Boolean).join("\n\n").slice(0, 20000);
-    const sourceLabel = `${source}${files.length} 个 JD 文件`;
+    addJdSources(extractedSources);
+    const combinedText = buildCombinedJdSourceText();
+    const sourceLabel = `${source}${state.jdSources.length} 个 JD 文件`;
 
     if (state.apiAvailable && state.llmConfigured) {
       try {
-        updateProgress(88, "LLM 合并 JD", "正在合并职责、岗位要求、加分项和技术问题");
+        updateProgress(88, "LLM 智能整理 JD", "正在逐一核对全部截图并重新排版");
         const normalized = await normalizeJobTextViaApi(combinedText);
         applyNormalizedJobText(normalized, sourceLabel);
       } catch (normalizationError) {
@@ -517,8 +567,12 @@ async function handleJdFiles(inputFiles, source = "上传") {
     }
 
     const warningText = warnings.length ? `；${warnings.join("；")}` : "";
-    setInputStatus("jd", `${files.length} 个 JD 文件已合并`, `${files.map((file) => file.name || "剪贴板图片").join("、")}${warningText}`);
-    updateProgress(100, "JD 已合并", `已处理 ${files.length} 个文件`);
+    setInputStatus(
+      "jd",
+      `${state.jdSources.length} 个 JD 来源已保留`,
+      `${state.jdSources.map((item) => item.name).join("、")}${warningText}；继续上传会追加`,
+    );
+    updateProgress(100, "JD 已智能整理", `已合并 ${state.jdSources.length} 个来源`);
   } catch (error) {
     elements.runNote.textContent = error.message;
     updateProgress(100, "JD 读取失败", error.message);
@@ -1081,21 +1135,129 @@ async function extractJobDocument(file) {
   );
 }
 
-async function extractTextFromJdImage(file) {
+async function prepareImageForOcr(file) {
+  if (!window.createImageBitmap) {
+    return file;
+  }
+
+  const bitmap = await createImageBitmap(file);
+  const targetWidth = Math.min(2600, Math.max(bitmap.width, 1800));
+  const scale = Math.min(2, targetWidth / bitmap.width);
+  const width = Math.max(1, Math.round(bitmap.width * scale));
+  const height = Math.max(1, Math.round(bitmap.height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  context.drawImage(bitmap, 0, 0, width, height);
+  bitmap.close();
+
+  const imageData = context.getImageData(0, 0, width, height);
+  const pixels = imageData.data;
+  let luminanceTotal = 0;
+  const sampleStep = Math.max(4, Math.floor(pixels.length / 40000 / 4) * 4);
+
+  for (let index = 0; index < pixels.length; index += sampleStep) {
+    luminanceTotal += pixels[index] * 0.299 + pixels[index + 1] * 0.587 + pixels[index + 2] * 0.114;
+  }
+
+  const sampleCount = Math.ceil(pixels.length / sampleStep);
+  const shouldInvert = luminanceTotal / sampleCount < 105;
+
+  for (let index = 0; index < pixels.length; index += 4) {
+    let gray = pixels[index] * 0.299 + pixels[index + 1] * 0.587 + pixels[index + 2] * 0.114;
+    if (shouldInvert) gray = 255 - gray;
+    gray = Math.max(0, Math.min(255, (gray - 128) * 1.35 + 128));
+    pixels[index] = gray;
+    pixels[index + 1] = gray;
+    pixels[index + 2] = gray;
+  }
+
+  context.putImageData(imageData, 0, 0);
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob || file), "image/png");
+  });
+}
+
+async function getJdOcrWorker() {
   if (!window.Tesseract) {
     throw new Error("OCR 组件加载失败，请检查网络后重试，或直接粘贴 JD 文本。");
   }
 
-  const result = await Tesseract.recognize(file, "chi_sim+eng", {
-    logger: (message) => {
-      if (message.status === "recognizing text") {
-        const value = Math.round(10 + message.progress * 80);
-        updateProgress(value, "识别 JD 截图", "正在从截图中提取文字");
-      }
-    },
-  });
+  if (!state.jdOcrWorkerPromise) {
+    state.jdOcrWorkerPromise = Tesseract.createWorker(["chi_sim", "eng"], 1, {
+      logger: (message) => state.jdOcrProgressHandler?.(message),
+    }).catch((error) => {
+      state.jdOcrWorkerPromise = null;
+      throw error;
+    });
+  }
 
-  return result.data.text.trim();
+  return state.jdOcrWorkerPromise;
+}
+
+async function extractTextFromJdImage(file, fileIndex = 0, fileCount = 1) {
+  if (!window.Tesseract) {
+    throw new Error("OCR 组件加载失败，请检查网络后重试，或直接粘贴 JD 文本。");
+  }
+
+  const image = await prepareImageForOcr(file);
+  const worker = await getJdOcrWorker();
+  state.jdOcrProgressHandler = (message) => {
+    if (message.status !== "recognizing text") return;
+    const completedShare = fileIndex / fileCount;
+    const currentShare = message.progress / fileCount;
+    const value = Math.round(10 + (completedShare + currentShare) * 72);
+    updateProgress(value, `识别 JD 截图 ${fileIndex + 1}/${fileCount}`, file.name || "正在提取文字");
+  };
+
+  try {
+    const result = await worker.recognize(image);
+    return result.data.text.trim();
+  } finally {
+    state.jdOcrProgressHandler = null;
+  }
+}
+
+async function handlePastedJobText(rawText) {
+  const text = rawText.trim();
+  if (!text) return;
+
+  if (state.jdSources.length >= 6) {
+    setInputStatus("jd", "已达到 6 个 JD 来源上限", "如需分析另一份岗位，请先点击“清空”");
+    return;
+  }
+
+  addJdSources([
+    {
+      key: `pasted-text:${Date.now()}:${text.length}`,
+      name: `粘贴文本 ${state.jdSources.length + 1}`,
+      rawText: text,
+    },
+  ]);
+
+  const combinedText = buildCombinedJdSourceText();
+  showLoading("正在智能整理岗位 JD");
+  updateProgress(28, "读取粘贴内容", "正在识别岗位职责、要求和加分项");
+
+  try {
+    if (state.apiAvailable && state.llmConfigured) {
+      updateProgress(66, "LLM 智能整理 JD", "正在去除网页噪音并统一排版");
+      const normalized = await normalizeJobTextViaApi(combinedText);
+      applyNormalizedJobText(normalized, `${state.jdSources.length} 个 JD 来源`);
+    } else {
+      applyCleanedJobText(combinedText, "JD 文本");
+      elements.runNote.textContent = "默认 LLM 暂不可用，已使用本地规则整理";
+    }
+    setInputStatus("jd", `${state.jdSources.length} 个 JD 来源已保留`, "继续粘贴或上传会自动追加并重新整理");
+    updateProgress(100, "JD 已智能整理", `已合并 ${state.jdSources.length} 个来源`);
+  } catch (error) {
+    applyCleanedJobText(combinedText, "JD 文本");
+    elements.runNote.textContent = `LLM 整理失败，已保留提取文本：${error.message}`;
+    updateProgress(100, "已保留原始内容", "可以直接编辑后继续分析");
+  } finally {
+    window.setTimeout(hideLoading, 700);
+  }
 }
 
 async function normalizeJobTextViaApi(rawText) {
@@ -1789,6 +1951,8 @@ function bindEvents() {
   });
 
   elements.useExampleButton.addEventListener("click", () => {
+    state.jdSources = [];
+    state.jdTextEditedByUser = false;
     elements.resumeInput.value = SAMPLE_RESUME;
     elements.jobInput.value = SAMPLE_JOB;
     setInputStatus("resume", "示例简历已载入", "可直接开始分析");
@@ -1837,7 +2001,7 @@ function bindEvents() {
     const pastedText = event.clipboardData?.getData("text/plain");
     if (pastedText?.trim()) {
       event.preventDefault();
-      applyCleanedJobText(pastedText, "JD 文本");
+      await handlePastedJobText(pastedText);
     }
   });
 
@@ -1871,17 +2035,11 @@ function bindEvents() {
 
   elements.jobInput.addEventListener("input", () => {
     if (!elements.jobInput.value.trim()) {
+      state.jdSources = [];
+      state.jdTextEditedByUser = false;
       clearInputStatus("jd");
     } else {
-      window.clearTimeout(elements.jobInput.cleanTimer);
-      elements.jobInput.cleanTimer = window.setTimeout(() => {
-        const current = elements.jobInput.value;
-        const cleaned = cleanJobDescriptionText(current);
-        if (cleaned !== current && current.length - cleaned.length > 80) {
-          elements.jobInput.value = cleaned;
-          setInputStatus("jd", "JD 文本已清理", "已自动排除明显网页噪音");
-        }
-      }, 700);
+      state.jdTextEditedByUser = true;
     }
   });
 
@@ -1943,6 +2101,8 @@ function bindEvents() {
   });
 
   elements.loadSampleButton.addEventListener("click", () => {
+    state.jdSources = [];
+    state.jdTextEditedByUser = false;
     elements.resumeInput.value = SAMPLE_RESUME;
     elements.jobInput.value = SAMPLE_JOB;
     setInputStatus("resume", "示例简历已载入", "可直接开始分析");
@@ -1956,6 +2116,8 @@ function bindEvents() {
     elements.resumeInput.value = "";
     elements.jobInput.value = "";
     state.lastResult = null;
+    state.jdSources = [];
+    state.jdTextEditedByUser = false;
     renderEmptyResult();
     clearInputStatus("resume");
     clearInputStatus("jd");

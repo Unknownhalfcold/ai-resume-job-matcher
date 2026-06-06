@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 DEFAULT_LLM_MODEL = "gpt-5.5"
 DEFAULT_MAX_OUTPUT_TOKENS = 5200
-MAX_JOB_OCR_CANDIDATE_CHARS = 6000
+MAX_JOB_OCR_CANDIDATE_CHARS = 16000
 
 APIStyle = Literal["responses", "chat_completions"]
 
@@ -683,20 +683,24 @@ JOB_NORMALIZATION_INSTRUCTIONS = """
 你是一个中文招聘 JD 文本清洗助手。
 
 任务：
-1. 输入可能来自截图 OCR，里面可能混有网页导航、按钮、公司介绍、福利、推荐职位和广告。
+1. 输入可能由多张截图 OCR 合并而成，每个“【来源 n/N：文件名】”都代表一张独立截图或文件，必须逐一检查，不能只处理第一个来源。
 2. 只保留和目标岗位直接相关的内容：岗位名称、岗位职责/工作内容、岗位要求/任职要求/任职资格、技能要求、加分项、技术问题。
 3. 岗位职责和岗位要求都必须考虑；不要因为截图里出现“要求”“任职资格”就把它误删。
 4. 如果 JD 中出现技术问答题，例如“你如何理解 RAG”，不要删除，要放入 technical_questions，同时也要在 cleaned_job_text 的“技术问题”部分保留。
 5. 不要补写原文没有的信息，不要编造公司、薪资、学历或技能要求。
 6. 对“沟通能力、团队协作、责任心、抗压能力、学习能力、执行力”等软性要求要保留但标记为低优先级语义，不要把它们当作核心硬技能。
-7. 输出必须是符合 schema 的中文 JSON。
+7. 修复 OCR 造成的汉字间多余空格、错误断行、重复编号和重复句子；语义不确定的字符不要擅自猜测。
+8. 多张截图可能是同一 JD 的连续页面。请按语义而不是截图顺序合并，去除跨截图重复内容，但保留后续截图新增的要求。
+9. 输出必须是符合 schema 的中文 JSON。
 
 清洗边界：
 - 删除：登录、注册、分享、收藏、立即申请、投递简历、公司介绍、福利待遇、地址、推荐职位等无关内容。
 - 保留：职责、要求、技能、经验、学历、专业、工具、项目要求、加分项、技术问题。
 
 cleaned_job_text 格式：
-- 尽量整理为“岗位名称 / 岗位职责 / 岗位要求 / 加分项 / 技术问题”几段。
+- 使用纯文本，按“岗位名称 / 岗位职责 / 岗位要求 / 加分项 / 技术问题”分段。
+- 岗位职责、岗位要求、加分项和技术问题中的每条内容使用“- ”开头，一条一行。
+- 不要输出来源文件名、网页按钮、清洗过程、JSON 标记或 Markdown 标题符号。
 - 岗位职责来自“岗位职责、职位描述、工作内容、你将负责、Responsibilities、What you will do”等部分。
 - 岗位要求来自“岗位要求、任职要求、任职资格、招聘要求、Requirements、Qualifications、Who you are”等部分。
 - 加分项来自“优先、加分、Bonus、Preferred、Nice to have”等部分。
@@ -833,16 +837,30 @@ def build_job_ocr_candidate(raw_text: str) -> str:
     kept: list[str] = []
     seen: set[str] = set()
     inside_job_block = False
+    source_stopped = False
 
     for line in lines:
+        if re.match(r"^【(?:来源\s*\d+/\d+|用户补充或编辑的 JD 文本)", line):
+            marker = line.strip("【】 ")
+            inside_job_block = False
+            source_stopped = False
+            kept.append(f"【{marker}】")
+            continue
+
         compact = re.sub(r"^[^\w\u4e00-\u9fa5]+", "", line).strip()
         if not compact or compact in seen:
             continue
 
         if JD_SECTION_PATTERN.search(compact):
             inside_job_block = True
+            source_stopped = False
         elif inside_job_block and JD_STOP_SECTION_PATTERN.search(compact) and len(kept) >= 3:
-            break
+            source_stopped = True
+            inside_job_block = False
+            continue
+
+        if source_stopped:
+            continue
 
         if not is_job_candidate_line(compact, inside_job_block):
             continue
@@ -903,11 +921,13 @@ def build_job_normalization_input(raw_text: str) -> str:
     return "\n\n".join(
         [
             "请从以下 OCR 或网页复制文本中提取真正的岗位 JD。",
+            "输入可能包含多个【来源 n/N】。逐个来源检查并合并，任何一个来源都不能被默认忽略。",
+            "规则候选文本只是辅助线索，可能遗漏内容；原始文本才是完整依据。",
             "必须同时考虑两类核心内容：岗位职责/工作内容，以及岗位要求/任职要求/任职资格。",
             "还要保留加分项/优先项、技能工具、学历专业、经验年限、项目要求和 JD 中出现的技术问题。",
             "如果文本里出现通用软性要求，如沟通、团队协作、责任心、抗压能力、学习能力，只能作为低优先级要求保留，不要当成硬技能。",
             "删除网页噪音、按钮、导航、福利、公司介绍、推荐职位、广告、地址和投递入口。",
-            "cleaned_job_text 请整理成清晰中文文本，优先使用这些小标题：岗位名称、岗位职责、岗位要求、加分项、技术问题。",
+            "修复 OCR 空格、断行和重复内容。cleaned_job_text 必须使用岗位名称、岗位职责、岗位要求、加分项、技术问题五类小标题；每个条目单独一行并以“- ”开头。",
             "如果某类内容原文不存在，不要编造；如果没有足够 JD 信息，cleaned_job_text 返回尽可能少的可靠内容，并降低 confidence。",
             "【规则候选文本】",
             candidate_text or "未提取到可靠候选行，请直接根据原始文本判断。",
@@ -1027,11 +1047,75 @@ def validate_advice(raw_advice: dict[str, Any]) -> dict[str, Any]:
     return advice
 
 
+def tidy_cleaned_job_text(raw_text: str) -> str:
+    text = raw_text.replace("\r", "\n").strip()
+    text = re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])", "", text)
+    text = re.sub(
+        r"(?<!\n)(岗位名称|岗位职责|岗位要求|任职要求|任职资格|加分项|技术问题)\s*[：:]",
+        r"\n\1：",
+        text,
+    )
+
+    section_aliases = {
+        "岗位名称": "岗位名称",
+        "岗位职责": "岗位职责",
+        "岗位要求": "岗位要求",
+        "任职要求": "岗位要求",
+        "任职资格": "岗位要求",
+        "加分项": "加分项",
+        "技术问题": "技术问题",
+    }
+    section_pattern = re.compile(
+        r"^(岗位名称|岗位职责|岗位要求|任职要求|任职资格|加分项|技术问题)\s*[：:]?\s*(.*)$"
+    )
+    output: list[str] = []
+    seen_items: set[tuple[str, str]] = set()
+    current_section = ""
+
+    for raw_line in text.splitlines():
+        line = re.sub(r"^#{1,6}\s*", "", raw_line).strip()
+        if not line:
+            continue
+
+        section_match = section_pattern.match(line)
+        if section_match:
+            current_section = section_aliases[section_match.group(1)]
+            content = section_match.group(2).strip()
+            if output:
+                output.append("")
+            if current_section == "岗位名称":
+                output.append(f"岗位名称：{content}" if content else "岗位名称：")
+            else:
+                output.append(f"{current_section}：")
+                if content:
+                    item = re.sub(r"^([-*•·]|\d+[.、)])\s*", "", content).strip()
+                    if item:
+                        seen_items.add((current_section, item))
+                        output.append(f"- {item}")
+            continue
+
+        item = re.sub(r"^([-*•·]|\d+[.、)])\s*", "", line).strip()
+        if not item:
+            continue
+        if current_section and current_section != "岗位名称":
+            item_key = (current_section, item)
+            if item_key in seen_items:
+                continue
+            seen_items.add(item_key)
+            output.append(f"- {item}")
+        else:
+            output.append(item)
+
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(output)).strip()
+
+
 def validate_job_normalization(raw_payload: dict[str, Any]) -> dict[str, Any]:
     try:
-        return JobNormalizationPayload.model_validate(raw_payload).model_dump()
+        normalized = JobNormalizationPayload.model_validate(raw_payload).model_dump()
     except ValidationError as exc:
         raise LLMResponseError(f"Model returned invalid JD normalization JSON: {exc}") from exc
+    normalized["cleaned_job_text"] = tidy_cleaned_job_text(normalized["cleaned_job_text"])
+    return normalized
 
 
 def calculate_hybrid_score(rule_score: int | float | None, advice: Mapping[str, Any]) -> dict[str, Any]:
@@ -1207,7 +1291,7 @@ def normalize_job_with_responses_api(
                 "strict": True,
             }
         },
-        max_output_tokens=min(config.max_output_tokens, 2200),
+        max_output_tokens=min(config.max_output_tokens, 3200),
     )
 
     return validate_job_normalization(json.loads(response.output_text))
@@ -1226,7 +1310,7 @@ def normalize_job_with_chat_completions(
         ],
         response_format={"type": "json_object"},
         temperature=0,
-        max_tokens=min(config.max_output_tokens, 2200),
+        max_tokens=min(config.max_output_tokens, 3200),
     )
 
     content = response.choices[0].message.content

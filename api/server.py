@@ -63,7 +63,7 @@ class AISuggestionsRequest(AnalyzeRequest):
 
 
 class JobNormalizationRequest(BaseModel):
-    raw_text: str = Field(..., min_length=1, max_length=20000)
+    raw_text: str = Field(..., min_length=1, max_length=50000)
     llm_config: LLMRequestConfig | None = None
 
 

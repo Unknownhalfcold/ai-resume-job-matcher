@@ -87,7 +87,7 @@
                   </label>
                   <label class="upload-chip">
                     <span>上传 JD</span>
-                    <small>多图 / DOCX / PDF</small>
+                    <small>最多 6 个文件</small>
                     <input id="jd-image-file" type="file" multiple accept=".docx,.pdf,image/png,image/jpeg,image/jpg,image/webp,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf">
                   </label>
                 </div>
@@ -122,7 +122,7 @@
               </label>
               <label class="field">
                 <span>岗位 JD</span>
-                <textarea id="job-input" spellcheck="false" placeholder="粘贴岗位描述，或上传多张 JD 截图 / DOCX / PDF"></textarea>
+                <textarea id="job-input" spellcheck="false" placeholder="粘贴岗位描述，或连续上传多张 JD 截图 / DOCX / PDF，系统会自动合并"></textarea>
                 <span class="input-status" id="jd-file-status" role="status" hidden></span>
               </label>
             </div>
@@ -367,6 +367,6 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script src="assets/app.js?v=13"></script>
+    <script src="assets/app.js?v=14"></script>
   </body>
 </html>
