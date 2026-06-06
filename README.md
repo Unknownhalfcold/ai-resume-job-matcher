@@ -11,8 +11,8 @@ AI Resume Job Matcher 是一个面向求职者的简历与岗位匹配分析工�
 
 ## Live Demo
 
-- GitHub Pages：[https://unknownhalfcold.github.io/ai-resume-job-matcher/](https://unknownhalfcold.github.io/ai-resume-job-matcher/)
-- 自定义域名：[https://www.jobmatcher.win](https://www.jobmatcher.win)（HTTPS 证书配置中）
+- 正式站点：[https://www.jobmatcher.win](https://www.jobmatcher.win)
+- GitHub Pages 备用入口：[https://unknownhalfcold.github.io/ai-resume-job-matcher/](https://unknownhalfcold.github.io/ai-resume-job-matcher/)
 - 云端 API：[https://ai-resume-job-matcher-api.onrender.com](https://ai-resume-job-matcher-api.onrender.com)
 
 Render 免费实例休眠后，第一次请求可能需要等待服务唤醒。

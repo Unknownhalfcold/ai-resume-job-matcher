@@ -124,7 +124,7 @@ uvicorn api.server:app --host 0.0.0.0 --port $PORT
 
 ```text
 DATABASE_URL=<Neon connection string>
-ALLOWED_ORIGINS=https://unknownhalfcold.github.io,http://localhost:8000,http://127.0.0.1:8000
+ALLOWED_ORIGINS=https://www.jobmatcher.win,https://jobmatcher.win,https://unknownhalfcold.github.io,http://localhost:8000,http://127.0.0.1:8000
 AUTH_TOKEN_TTL_DAYS=14
 ```
 

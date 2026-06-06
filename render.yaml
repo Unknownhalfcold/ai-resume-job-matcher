@@ -9,7 +9,7 @@ services:
       - key: PYTHON_VERSION
         value: 3.12.8
       - key: ALLOWED_ORIGINS
-        value: https://unknownhalfcold.github.io,http://localhost:8000,http://127.0.0.1:8000
+        value: https://www.jobmatcher.win,https://jobmatcher.win,https://unknownhalfcold.github.io,http://localhost:8000,http://127.0.0.1:8000
       - key: AUTH_TOKEN_TTL_DAYS
         value: "14"
       - key: DATABASE_URL

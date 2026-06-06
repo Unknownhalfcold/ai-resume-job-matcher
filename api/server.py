@@ -37,6 +37,8 @@ DEFAULT_ALLOWED_ORIGINS = (
     "http://localhost:8000",
     "http://127.0.0.1:8000",
     "https://unknownhalfcold.github.io",
+    "https://jobmatcher.win",
+    "https://www.jobmatcher.win",
 )
 
 
