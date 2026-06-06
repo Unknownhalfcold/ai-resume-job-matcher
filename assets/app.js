@@ -63,7 +63,9 @@ const elements = {
   inputAlertMessage: document.querySelector("#input-alert-message"),
   closeInputAlertButton: document.querySelector("#close-input-alert"),
   loadSampleButton: document.querySelector("#load-sample"),
+  clearJdButton: document.querySelector("#clear-jd"),
   clearButton: document.querySelector("#clear-all"),
+  analyzeAnotherJobButton: document.querySelector("#analyze-another-job"),
   copyJsonButton: document.querySelector("#copy-json"),
   resumeFile: document.querySelector("#resume-file"),
   jdImageFile: document.querySelector("#jd-image-file"),
@@ -272,6 +274,25 @@ function clearInputStatus(target) {
   const statusElement = target === "resume" ? elements.resumeFileStatus : elements.jdFileStatus;
   statusElement.replaceChildren();
   statusElement.hidden = true;
+}
+
+function clearCurrentJob({ returnToAnalyzer = false } = {}) {
+  elements.jobInput.value = "";
+  elements.jdImageFile.value = "";
+  state.jdSources = [];
+  state.jdTextEditedByUser = false;
+  state.lastResult = null;
+  renderEmptyResult();
+  clearInputStatus("jd");
+  hideLoading();
+  elements.runNote.textContent = elements.resumeInput.value.trim()
+    ? "简历已保留，请输入或上传新的岗位 JD"
+    : getReadinessNote();
+
+  if (returnToAnalyzer) {
+    showPage("analyze");
+    window.setTimeout(() => elements.jobInput.focus(), 0);
+  }
 }
 
 function isResumeFile(file) {
@@ -2110,6 +2131,14 @@ function bindEvents() {
     hideLoading();
     showPage("analyze");
     elements.runNote.textContent = `${getReadinessNote()}；示例已载入`;
+  });
+
+  elements.clearJdButton.addEventListener("click", () => {
+    clearCurrentJob();
+  });
+
+  elements.analyzeAnotherJobButton.addEventListener("click", () => {
+    clearCurrentJob({ returnToAnalyzer: true });
   });
 
   elements.clearButton.addEventListener("click", () => {

@@ -94,7 +94,8 @@
 
                 <div class="tool-group action-tools" aria-label="分析操作">
                   <button class="button secondary" id="load-sample" type="button">载入示例</button>
-                  <button class="button ghost" id="clear-all" type="button">清空</button>
+                  <button class="button ghost" id="clear-jd" type="button">清空 JD</button>
+                  <button class="button ghost" id="clear-all" type="button">全部清空</button>
                   <button class="button primary" id="analyze-button" type="button">开始分析</button>
                 </div>
               </div>
@@ -141,6 +142,7 @@
               <p>基础规则分先给快速判断，LLM 负责语义权重和 gap evidence。</p>
             </div>
             <div class="tool-group action-tools">
+              <button class="button secondary" id="analyze-another-job" type="button">匹配其他 JD</button>
               <button class="button secondary" id="copy-json" type="button" disabled>复制 JSON</button>
             </div>
           </div>
@@ -367,6 +369,6 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script src="assets/app.js?v=14"></script>
+    <script src="assets/app.js?v=15"></script>
   </body>
 </html>
