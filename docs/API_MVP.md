@@ -4,9 +4,7 @@
 
 API MVP 用于跑通前后端通信链路。
 
-当前后端先复用已有的规则匹配逻辑，不接入外部大模型。后续接入 LLM 时，会在这个后端服务中完成 API Key 管理、模型调用和结果整合。
-
-当前版本已经预留并实现可选 LLM 建议接口。未配置 `LLM_API_KEY` 或 `OPENAI_API_KEY` 时，规则分析接口照常可用，LLM 建议接口会提示未配置。
+当前后端同时提供稳定规则分析和可选 LLM 建议。API Key、Base URL 和模型配置只从后端环境变量读取；未配置 `LLM_API_KEY` 或 `OPENAI_API_KEY` 时，规则分析接口照常可用，LLM 接口会提示未配置。
 
 ## 架构
 
@@ -194,21 +192,11 @@ $env:LLM_MODEL="deepseek-v4-flash"
 ```json
 {
   "resume": "简历文本",
-  "job": "岗位 JD 文本",
-  "analysis": {
-    "score": 43
-  },
-  "llm_config": {
-    "provider": "deepseek",
-    "api_style": "chat_completions",
-    "base_url": "https://api.deepseek.com",
-    "api_key": "用户自己的 API Key",
-    "model": "deepseek-v4-flash"
-  }
+  "job": "岗位 JD 文本"
 }
 ```
 
-`llm_config` 是可选字段。传入时优先使用用户本次请求的配置；不传入时使用后端环境变量。
+接口只接受 `resume` 和 `job`。`api_key`、`base_url`、`llm_config` 和前端传入的分析结果会被拒绝；模型配置只从后端环境变量读取。
 
 返回内容包括：
 

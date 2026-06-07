@@ -1014,6 +1014,13 @@ select:focus {
   display: none;
 }
 
+.security-note {
+  margin: 16px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
 .mode-switch {
   flex-wrap: wrap;
   gap: 8px;

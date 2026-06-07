@@ -69,6 +69,18 @@ class AnalysisHistory(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True, nullable=False)
 
 
+class LLMUsageEvent(Base):
+    __tablename__ = "llm_usage_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    ip_hash: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    endpoint: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    input_chars: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True, nullable=False)
+
+
 engine = create_engine(
     get_sqlalchemy_url(),
     connect_args=get_connect_args(),

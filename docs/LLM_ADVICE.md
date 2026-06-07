@@ -124,12 +124,11 @@ POST /api/ai-suggestions
 ```json
 {
   "resume": "简历文本",
-  "job": "岗位 JD 文本",
-  "analysis": {
-    "score": 43
-  }
+  "job": "岗位 JD 文本"
 }
 ```
+
+接口拒绝额外字段。用户不能传入 `api_key`、`base_url`、模型名或前端计算的分析结果；后端会自行运行规则层并从服务器环境变量读取 LLM 配置。
 
 ## JD OCR 清洗接口
 
@@ -209,40 +208,22 @@ http://localhost:8001/docs
 
 很多第三方平台提供 OpenAI-compatible API。此时通常只需要更换环境变量，不需要改前端。
 
-## BYOK 模式
+## 服务端安全调用
 
-BYOK 是 Bring Your Own Key，意思是用户使用自己的 API Key。
-
-当前项目支持两种 LLM Key 来源：
+当前版本不支持浏览器 BYOK。统一调用链为：
 
 ```text
-1. 后端环境变量
-2. 用户本次请求传入的 llm_config
-```
-
-当用户在网页中填写自己的 API Key 时，前端会把它放入本次 `/api/ai-suggestions` 请求：
-
-```json
-{
-  "llm_config": {
-    "provider": "deepseek",
-    "api_style": "chat_completions",
-    "base_url": "https://api.deepseek.com",
-    "api_key": "用户自己的 API Key",
-    "model": "deepseek-v4-flash"
-  }
-}
+GitHub Pages -> Render Web Service -> Render Environment Variables -> LLM
 ```
 
 安全边界：
 
-- API Key 不写入 GitHub。
-- API Key 不写入数据库。
-- API Key 不写入浏览器 localStorage。
-- API Key 只用于当前这次后端请求。
-- 页面刷新后，前端输入框会清空。
-
-后端收到 `llm_config` 后，会优先使用用户本次请求的配置；如果没有传入，则回退到服务器环境变量。
+- 前端只发送简历和 JD。
+- `LLM_API_KEY`、`LLM_BASE_URL`、模型名只在 Render 环境变量中配置。
+- 请求模型禁止 `api_key`、`base_url`、`llm_config` 等额外字段。
+- API Key 不写入 GitHub、浏览器或数据库。
+- 日志只记录输入字符数、状态和耗时。
+- Neon 只保存分析摘要和限流记录，默认不保存完整简历或 JD。
 
 ### DeepSeek 示例
 
@@ -295,8 +276,11 @@ $env:LLM_MODEL="控制台中可用的模型名"
 - `LLM_BASE_URL`：第三方兼容接口地址。为空时默认使用 OpenAI 官方接口。
 - `LLM_MODEL`：模型名称。
 - `LLM_API_STYLE`：`responses` 或 `chat_completions`。
-- `LLM_MAX_OUTPUT_TOKENS`：限制建议层输出长度，默认 `3800`。
+- `LLM_MAX_OUTPUT_TOKENS`：限制建议层输出长度，默认 `5200`。
 - `LLM_TEMPERATURE`：控制输出随机性，默认 `0.2`。
+- `LLM_REQUEST_TIMEOUT_SECONDS`：单次模型调用超时，生产环境默认 `60`。
+- `MAX_LLM_CONCURRENCY`：同时执行的模型请求数，默认 `10`。
+- `RATE_LIMIT_SALT`：哈希客户端 IP 的随机盐，生产环境必须设置。
 
 如果设置了 `LLM_BASE_URL`，系统会默认使用 `chat_completions`，因为大多数第三方兼容 API 优先支持 Chat Completions。
 
@@ -313,6 +297,4 @@ $env:LLM_MODEL="控制台中可用的模型名"
 
 ## 安全注意
 
-不要把 API Key 写进前端代码、README、截图或 GitHub 仓库。
-
-API Key 只应该放在本地环境变量或未来的云端后端环境变量里。
+不要把真实 API Key 写进前端代码、README、截图或 GitHub 仓库。生产 Key 只放在 Render Environment Variables；本地调试 Key 只放在当前终端环境变量或未提交的 `.env` 中。

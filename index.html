@@ -45,11 +45,11 @@
             <span>Word / PDF 简历上传</span>
             <span>JD 截图 OCR</span>
             <span>基础规则 + LLM Gap</span>
-            <span>默认 AI 或自带 Key</span>
+            <span>站点默认 AI</span>
           </div>
 
           <div class="version-strip" aria-label="版本状态">
-            <span>v0.6</span>
+            <span>v0.7</span>
             <span id="runtime-status">Connecting API</span>
           </div>
         </div>
@@ -94,6 +94,7 @@
 
                 <div class="tool-group action-tools" aria-label="分析操作">
                   <button class="button secondary" id="load-sample" type="button">载入示例</button>
+                  <button class="button ghost" id="clear-resume" type="button">清空简历</button>
                   <button class="button ghost" id="clear-jd" type="button">清空 JD</button>
                   <button class="button ghost" id="clear-all" type="button">全部清空</button>
                   <button class="button primary" id="analyze-button" type="button">开始分析</button>
@@ -118,12 +119,12 @@
             <div class="text-grid">
               <label class="field">
                 <span>简历文本</span>
-                <textarea id="resume-input" spellcheck="false" placeholder="粘贴简历内容，或上传 Word / PDF 后自动提取"></textarea>
+                <textarea id="resume-input" maxlength="8000" spellcheck="false" placeholder="粘贴简历内容，或上传 Word / PDF 后自动提取（最多 8,000 字符）"></textarea>
                 <span class="input-status" id="resume-file-status" role="status" hidden></span>
               </label>
               <label class="field">
                 <span>岗位 JD</span>
-                <textarea id="job-input" spellcheck="false" placeholder="粘贴岗位描述，或连续上传多张 JD 截图 / DOCX / PDF，系统会自动合并"></textarea>
+                <textarea id="job-input" maxlength="8000" spellcheck="false" placeholder="粘贴岗位描述或截图（Ctrl+V），也可上传多张截图 / DOCX / PDF；OCR 后由 LLM 整理（最多 8,000 字符）"></textarea>
                 <span class="input-status" id="jd-file-status" role="status" hidden></span>
               </label>
             </div>
@@ -205,48 +206,7 @@
               </div>
               <button class="button secondary" id="ai-advice-button" type="button" disabled>生成 AI 建议</button>
             </div>
-            <div class="mode-switch" aria-label="AI 模式">
-              <label>
-                <input type="radio" name="ai-mode" value="default" checked>
-                <span>使用站点默认 LLM</span>
-              </label>
-              <label>
-                <input type="radio" name="ai-mode" value="byok">
-                <span>使用我的 API Key</span>
-              </label>
-            </div>
-            <div class="ai-settings" aria-label="自带 API Key 设置">
-              <label class="field compact-field">
-                <span>Provider</span>
-                <select id="llm-provider">
-                  <option value="deepseek">DeepSeek</option>
-                  <option value="dashscope">DashScope</option>
-                  <option value="moonshot">Moonshot / Kimi</option>
-                  <option value="siliconflow">SiliconFlow</option>
-                  <option value="openai">OpenAI</option>
-                  <option value="custom">Custom</option>
-                </select>
-              </label>
-              <label class="field compact-field">
-                <span>Base URL</span>
-                <input id="llm-base-url" type="url" autocomplete="off" spellcheck="false">
-              </label>
-              <label class="field compact-field">
-                <span>Model</span>
-                <input id="llm-model" type="text" autocomplete="off" spellcheck="false">
-              </label>
-              <label class="field compact-field">
-                <span>API Key</span>
-                <input id="llm-api-key" type="password" autocomplete="off" spellcheck="false" placeholder="仅本次请求使用">
-              </label>
-              <label class="field compact-field">
-                <span>API Style</span>
-                <select id="llm-api-style">
-                  <option value="chat_completions">Chat Completions</option>
-                  <option value="responses">Responses</option>
-                </select>
-              </label>
-            </div>
+            <p class="security-note">AI 请求只发送简历与岗位 JD 到本站 Render 后端；API Key 与模型地址仅保存在服务器环境变量中。</p>
             <p class="ai-advice-status" id="ai-advice-status">完成基础分析后可生成</p>
             <div class="ai-advice-content" id="ai-advice-content"></div>
           </section>
@@ -285,7 +245,7 @@
           <div class="privacy-list">
             <section class="result-block">
               <h3>我们会保存什么</h3>
-              <p>我们会保存你的账号信息和分析历史。分析历史包括简历文本、岗位 JD、匹配分数、优势、缺口建议和创建时间。</p>
+              <p>我们会保存你的账号信息，以及分析历史中的匹配分数、优势、缺口、建议和创建时间。默认不保存完整简历或岗位 JD。</p>
             </section>
             <section class="result-block">
               <h3>我们不会公开什么</h3>
@@ -351,7 +311,7 @@
           </div>
           <button class="button ghost" id="auth-close" type="button">关闭</button>
         </div>
-        <p class="auth-copy">账户系统用于保存分析历史。登录后完成分析会保存简历文本、岗位 JD 和分析结果；游客模式不会保存历史。</p>
+        <p class="auth-copy">账户系统用于保存分析摘要。登录后会保存匹配分数、优势、缺口和建议；默认不保存完整简历或岗位 JD，游客模式不会保存历史。</p>
         <label class="field">
           <span>Email</span>
           <input id="auth-email" type="email" autocomplete="email" required>
@@ -369,6 +329,6 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script src="assets/app.js?v=15"></script>
+    <script src="assets/app.js?v=16"></script>
   </body>
 </html>

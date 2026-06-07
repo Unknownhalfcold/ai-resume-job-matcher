@@ -15,9 +15,15 @@ const state = {
 
 const BACKEND_TIMEOUT_MS = 12000;
 const API_HEALTH_TIMEOUT_MS = 25000;
+const LLM_REQUEST_TIMEOUT_MS = 65000;
+const MAX_RESUME_CHARS = 8000;
+const MAX_JOB_CHARS = 8000;
+const MAX_TOTAL_INPUT_CHARS = 16000;
 const AUTH_TOKEN_STORAGE_KEY = "airjm_auth_token";
 const CLOUD_API_BASE_URL = window.APP_CONFIG?.apiBaseUrl || "https://ai-resume-job-matcher-api.onrender.com";
 const PAGE_NAMES = ["start", "analyze", "result", "history", "privacy"];
+const clipboardFileKeys = new WeakMap();
+let clipboardFileSequence = 0;
 
 const SAMPLE_RESUME = `姓名：示例用户
 
@@ -63,6 +69,7 @@ const elements = {
   inputAlertMessage: document.querySelector("#input-alert-message"),
   closeInputAlertButton: document.querySelector("#close-input-alert"),
   loadSampleButton: document.querySelector("#load-sample"),
+  clearResumeButton: document.querySelector("#clear-resume"),
   clearJdButton: document.querySelector("#clear-jd"),
   clearButton: document.querySelector("#clear-all"),
   analyzeAnotherJobButton: document.querySelector("#analyze-another-job"),
@@ -70,12 +77,6 @@ const elements = {
   resumeFile: document.querySelector("#resume-file"),
   jdImageFile: document.querySelector("#jd-image-file"),
   aiAdviceButton: document.querySelector("#ai-advice-button"),
-  aiModeInputs: document.querySelectorAll("input[name='ai-mode']"),
-  llmProvider: document.querySelector("#llm-provider"),
-  llmBaseUrl: document.querySelector("#llm-base-url"),
-  llmModel: document.querySelector("#llm-model"),
-  llmApiKey: document.querySelector("#llm-api-key"),
-  llmApiStyle: document.querySelector("#llm-api-style"),
   runNote: document.querySelector("#run-note"),
   scoreRing: document.querySelector("#score-ring"),
   scoreValue: document.querySelector("#score-value"),
@@ -116,45 +117,6 @@ const elements = {
   historyList: document.querySelector("#history-list"),
 };
 
-const LLM_PROVIDER_PRESETS = {
-  deepseek: {
-    provider: "deepseek",
-    baseUrl: "https://api.deepseek.com",
-    model: "deepseek-v4-flash",
-    apiStyle: "chat_completions",
-  },
-  dashscope: {
-    provider: "dashscope",
-    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-    model: "qwen-turbo",
-    apiStyle: "chat_completions",
-  },
-  moonshot: {
-    provider: "moonshot",
-    baseUrl: "https://api.moonshot.cn/v1",
-    model: "",
-    apiStyle: "chat_completions",
-  },
-  siliconflow: {
-    provider: "siliconflow",
-    baseUrl: "https://api.siliconflow.cn/v1",
-    model: "",
-    apiStyle: "chat_completions",
-  },
-  openai: {
-    provider: "openai",
-    baseUrl: "",
-    model: "gpt-5.5",
-    apiStyle: "responses",
-  },
-  custom: {
-    provider: "custom",
-    baseUrl: "",
-    model: "",
-    apiStyle: "chat_completions",
-  },
-};
-
 function getApiBaseUrlCandidate() {
   const params = new URLSearchParams(window.location.search);
   const explicitApiUrl = params.get("api");
@@ -172,11 +134,6 @@ function getApiBaseUrlCandidate() {
   }
 
   return "";
-}
-
-function getAiMode() {
-  const checked = [...elements.aiModeInputs].find((input) => input.checked);
-  return checked ? checked.value : "default";
 }
 
 function getPageFromHash() {
@@ -276,6 +233,19 @@ function clearInputStatus(target) {
   statusElement.hidden = true;
 }
 
+function getInputLengthError(resumeText, jobText) {
+  if (resumeText.length > MAX_RESUME_CHARS) {
+    return `简历最多支持 ${MAX_RESUME_CHARS.toLocaleString()} 个字符，当前为 ${resumeText.length.toLocaleString()} 个字符。`;
+  }
+  if (jobText.length > MAX_JOB_CHARS) {
+    return `岗位 JD 最多支持 ${MAX_JOB_CHARS.toLocaleString()} 个字符，当前为 ${jobText.length.toLocaleString()} 个字符。`;
+  }
+  if (resumeText.length + jobText.length > MAX_TOTAL_INPUT_CHARS) {
+    return `简历与 JD 合计最多支持 ${MAX_TOTAL_INPUT_CHARS.toLocaleString()} 个字符。`;
+  }
+  return "";
+}
+
 function clearCurrentJob({ returnToAnalyzer = false } = {}) {
   elements.jobInput.value = "";
   elements.jdImageFile.value = "";
@@ -293,6 +263,19 @@ function clearCurrentJob({ returnToAnalyzer = false } = {}) {
     showPage("analyze");
     window.setTimeout(() => elements.jobInput.focus(), 0);
   }
+}
+
+function clearCurrentResume() {
+  elements.resumeInput.value = "";
+  elements.resumeFile.value = "";
+  state.lastResult = null;
+  renderEmptyResult();
+  clearInputStatus("resume");
+  hideLoading();
+  elements.runNote.textContent = elements.jobInput.value.trim()
+    ? "岗位 JD 已保留，请输入或上传新的简历"
+    : getReadinessNote();
+  elements.resumeInput.focus();
 }
 
 function isResumeFile(file) {
@@ -468,7 +451,15 @@ function applyNormalizedJobText(response, sourceLabel = "JD 文本") {
 }
 
 function getJdSourceKey(file) {
-  return [file.name || "clipboard-image", file.size || 0, file.lastModified || 0].join(":");
+  const stableName = file.name && file.name !== "image.png" ? file.name : "";
+  if (stableName || file.lastModified) {
+    return [stableName || "clipboard-image", file.size || 0, file.lastModified || 0].join(":");
+  }
+  if (!clipboardFileKeys.has(file)) {
+    clipboardFileSequence += 1;
+    clipboardFileKeys.set(file, `clipboard-image:${Date.now()}:${clipboardFileSequence}:${file.size || 0}`);
+  }
+  return clipboardFileKeys.get(file);
 }
 
 function addJdSources(newSources) {
@@ -482,15 +473,24 @@ function addJdSources(newSources) {
 }
 
 function buildCombinedJdSourceText() {
-  const sourceBlocks = state.jdSources.map(
-    (source, index) => `【来源 ${index + 1}/${state.jdSources.length}：${source.name}】\n${source.rawText}`,
-  );
-
+  const sources = [...state.jdSources];
   if (state.jdTextEditedByUser && elements.jobInput.value.trim()) {
-    sourceBlocks.unshift(`【用户补充或编辑的 JD 文本】\n${elements.jobInput.value.trim()}`);
+    sources.unshift({
+      name: "用户补充或编辑的 JD 文本",
+      rawText: elements.jobInput.value.trim(),
+    });
   }
 
-  return sourceBlocks.join("\n\n").slice(0, 50000);
+  if (!sources.length) return "";
+  const markerBudget = sources.length * 48;
+  const sourceBudget = Math.max(200, Math.floor((MAX_JOB_CHARS - markerBudget) / sources.length));
+  return sources
+    .map((source, index) => {
+      const marker = `【来源 ${index + 1}/${sources.length}：${source.name}】`;
+      return `${marker}\n${String(source.rawText || "").slice(0, sourceBudget)}`;
+    })
+    .join("\n\n")
+    .slice(0, MAX_JOB_CHARS);
 }
 
 async function handleResumeFile(file, source = "上传") {
@@ -552,7 +552,7 @@ async function handleJdFiles(inputFiles, source = "上传") {
         }
         extractedSources.push({
           key: getJdSourceKey(file),
-          name: file.name || `JD 截图 ${state.jdSources.length + index + 1}`,
+          name: normalizeFileName(file, `剪贴板 JD 截图 ${state.jdSources.length + index + 1}`),
           rawText: text,
         });
       } else {
@@ -814,10 +814,8 @@ function normalizeHistoryItems(items, limit = 12) {
   return [...new Set((items || []).map((item) => String(item || "").trim()).filter(Boolean))].slice(0, limit);
 }
 
-function buildHistoryPayload(resumeText, jobText, result) {
+function buildHistoryPayload(result) {
   return {
-    resume_text: resumeText,
-    job_description: jobText,
     match_score: Number(result.score) || 0,
     strengths: normalizeHistoryItems((result.matched_keywords || []).map((keyword) => keyword.name)),
     weaknesses: normalizeHistoryItems((result.missing_keywords || []).map((keyword) => keyword.name)),
@@ -840,7 +838,7 @@ async function saveAnalysisHistory(resumeText, jobText, result) {
           "Content-Type": "application/json",
           ...getAuthHeaders(),
         },
-        body: JSON.stringify(buildHistoryPayload(resumeText, jobText, result)),
+        body: JSON.stringify(buildHistoryPayload(result)),
       },
       12000,
     );
@@ -871,20 +869,6 @@ function formatHistoryDate(value) {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-function truncateText(text, maxLength = 180) {
-  const value = String(text || "").replace(/\s+/g, " ").trim();
-  if (value.length <= maxLength) return value || "暂无内容";
-  return `${value.slice(0, maxLength)}...`;
-}
-
-function createHistorySnippet(label, text) {
-  const paragraph = document.createElement("p");
-  const strong = document.createElement("strong");
-  strong.textContent = `${label}：`;
-  paragraph.append(strong, document.createTextNode(truncateText(text)));
-  return paragraph;
 }
 
 function createHistoryTags(label, items) {
@@ -937,13 +921,6 @@ function renderHistoryRecords(records) {
     date.textContent = formatHistoryDate(record.created_at);
     top.append(score, date);
 
-    const snippets = document.createElement("div");
-    snippets.className = "history-snippet";
-    snippets.append(
-      createHistorySnippet("简历", record.resume_text),
-      createHistorySnippet("JD", record.job_description),
-    );
-
     const actions = document.createElement("div");
     actions.className = "history-actions";
     const tags = document.createElement("div");
@@ -961,7 +938,7 @@ function renderHistoryRecords(records) {
     deleteButton.textContent = "Delete";
     actions.append(tags, deleteButton);
 
-    card.append(top, snippets, actions);
+    card.append(top, actions);
     elements.historyList.append(card);
   });
 }
@@ -1293,26 +1270,12 @@ async function normalizeJobTextViaApi(rawText) {
         raw_text: rawText,
       }),
     },
-    45000,
+    LLM_REQUEST_TIMEOUT_MS,
   );
 }
 
-function hasUserLlmKey() {
-  return Boolean(elements.llmApiKey.value.trim());
-}
-
-function hasCompleteUserLlmConfig() {
-  return hasUserLlmKey() && Boolean(elements.llmModel.value.trim());
-}
-
 function canGenerateAiAdvice() {
-  if (!state.apiAvailable) {
-    return false;
-  }
-  if (getAiMode() === "byok") {
-    return hasCompleteUserLlmConfig();
-  }
-  return state.llmConfigured;
+  return state.apiAvailable && state.llmConfigured;
 }
 
 function getAiAdvicePlaceholderMessage() {
@@ -1320,35 +1283,11 @@ function getAiAdvicePlaceholderMessage() {
     return "基础分析已完成，可以生成 AI 建议";
   }
 
-  if (getAiMode() === "byok") {
-    return "请填写自己的 API Key 和模型名";
-  }
-
   if (!state.apiAvailable) {
     return "云端 API 连接中，连接后可使用站点默认 LLM";
   }
 
-  return "站点默认 LLM 暂未配置，可切换到自带 API Key";
-}
-
-function collectUserLlmConfig() {
-  if (getAiMode() !== "byok") {
-    return null;
-  }
-
-  const apiKey = elements.llmApiKey.value.trim();
-
-  if (!apiKey) {
-    return null;
-  }
-
-  return {
-    provider: elements.llmProvider.value,
-    api_key: apiKey,
-    base_url: elements.llmBaseUrl.value.trim() || null,
-    model: elements.llmModel.value.trim() || null,
-    api_style: elements.llmApiStyle.value,
-  };
+  return "站点默认 LLM 暂未配置，请稍后再试";
 }
 
 function updateAiAdviceAvailability() {
@@ -1360,53 +1299,19 @@ function updateAiAdviceAvailability() {
   elements.aiAdviceButton.disabled = !canGenerateAiAdvice();
 }
 
-function getStoredAiAdvice(mode = getAiMode()) {
+function getStoredAiAdvice() {
   if (!state.lastResult) return null;
-  const storedByMode = state.lastResult.ai_advice_by_mode;
-  if (storedByMode) {
-    return storedByMode[mode] || null;
-  }
-
-  return mode === "default" ? state.lastResult.ai_advice || null : null;
+  return state.lastResult.ai_advice || null;
 }
 
 function hasAnyStoredAiAdvice() {
   if (!state.lastResult) return false;
   return Boolean(
-    state.lastResult.ai_advice
-    || state.lastResult.ai_advice_by_mode?.default
-    || state.lastResult.ai_advice_by_mode?.byok,
+    state.lastResult.ai_advice,
   );
 }
 
-function syncAiModeUi() {
-  const byokMode = getAiMode() === "byok";
-  document.querySelector(".ai-settings").hidden = !byokMode;
-  updateAiAdviceAvailability();
-  if (state.lastResult) {
-    const storedAdvice = getStoredAiAdvice();
-    if (storedAdvice) {
-      renderAiAdvice(storedAdvice);
-    } else if (hasAnyStoredAiAdvice()) {
-      elements.aiAdviceStatus.textContent = byokMode
-        ? "已保留站点默认 LLM 的建议；填写自己的 API Key 后可生成另一份结果"
-        : "已保留自带 Key 生成的建议；可重新生成站点默认 LLM 结果";
-    } else {
-      renderAiAdvicePlaceholder(getAiAdvicePlaceholderMessage());
-    }
-  }
-}
-
-function applyProviderPreset(providerName) {
-  const preset = LLM_PROVIDER_PRESETS[providerName];
-  elements.llmBaseUrl.value = preset.baseUrl;
-  elements.llmModel.value = preset.model;
-  elements.llmApiStyle.value = preset.apiStyle;
-}
-
-async function generateAiAdvice(resumeText, jobText, analysis) {
-  const userLlmConfig = collectUserLlmConfig();
-
+async function generateAiAdvice(resumeText, jobText) {
   return fetchJsonWithTimeout(
     `${state.apiBaseUrl}/api/ai-suggestions`,
     {
@@ -1417,11 +1322,9 @@ async function generateAiAdvice(resumeText, jobText, analysis) {
       body: JSON.stringify({
         resume: resumeText,
         job: jobText,
-        analysis,
-        llm_config: userLlmConfig,
       }),
     },
-    45000,
+    LLM_REQUEST_TIMEOUT_MS,
   );
 }
 
@@ -1916,9 +1819,7 @@ async function detectBackend() {
         renderAiAdvicePlaceholder(
           canGenerateAiAdvice()
             ? "基础分析已完成，可以生成 AI 建议"
-            : getAiMode() === "byok"
-              ? "后端在线，请填写自己的 API Key 启用 AI 建议"
-              : getAiAdvicePlaceholderMessage(),
+            : getAiAdvicePlaceholderMessage(),
         );
       }
     }
@@ -2104,6 +2005,14 @@ function bindEvents() {
       return;
     }
 
+    const lengthError = getInputLengthError(resumeText, jobText);
+    if (lengthError) {
+      const target = resumeText.length > MAX_RESUME_CHARS ? elements.resumeInput : elements.jobInput;
+      showInputAlert(lengthError, target);
+      elements.runNote.textContent = "输入内容超过长度限制";
+      return;
+    }
+
     showLoading("正在计算关键词匹配度");
     try {
       updateProgress(24, "读取输入", "正在准备简历和岗位 JD");
@@ -2136,6 +2045,8 @@ function bindEvents() {
   elements.clearJdButton.addEventListener("click", () => {
     clearCurrentJob();
   });
+
+  elements.clearResumeButton.addEventListener("click", clearCurrentResume);
 
   elements.analyzeAnotherJobButton.addEventListener("click", () => {
     clearCurrentJob({ returnToAnalyzer: true });
@@ -2184,7 +2095,7 @@ function bindEvents() {
       return;
     }
 
-    if (!state.llmConfigured && !hasCompleteUserLlmConfig()) {
+    if (!state.llmConfigured) {
       showAiAdviceMessage(getAiAdvicePlaceholderMessage());
       return;
     }
@@ -2194,16 +2105,17 @@ function bindEvents() {
       return;
     }
 
+    const lengthError = getInputLengthError(resumeText, jobText);
+    if (lengthError) {
+      showAiAdviceMessage(lengthError);
+      return;
+    }
+
     elements.aiAdviceButton.disabled = true;
     elements.aiAdviceStatus.textContent = "AI 建议生成中";
 
     try {
-      const response = await generateAiAdvice(resumeText, jobText, state.lastResult);
-      const adviceMode = getAiMode();
-      state.lastResult.ai_advice_by_mode = {
-        ...(state.lastResult.ai_advice_by_mode || {}),
-        [adviceMode]: response,
-      };
+      const response = await generateAiAdvice(resumeText, jobText);
       state.lastResult.ai_advice = response;
       renderAiAdvice(response);
       elements.runNote.textContent = "AI 建议已生成";
@@ -2214,27 +2126,6 @@ function bindEvents() {
     } finally {
       updateAiAdviceAvailability();
     }
-  });
-
-  elements.aiModeInputs.forEach((input) => {
-    input.addEventListener("change", syncAiModeUi);
-  });
-
-  elements.llmProvider.addEventListener("change", () => {
-    applyProviderPreset(elements.llmProvider.value);
-    updateAiAdviceAvailability();
-  });
-
-  [elements.llmApiKey, elements.llmBaseUrl, elements.llmModel, elements.llmApiStyle].forEach((input) => {
-    input.addEventListener("input", () => {
-      updateAiAdviceAvailability();
-      if (state.lastResult && canGenerateAiAdvice() && !hasAnyStoredAiAdvice()) {
-        renderAiAdvicePlaceholder(getAiAdvicePlaceholderMessage());
-      }
-    });
-    input.addEventListener("change", () => {
-      updateAiAdviceAvailability();
-    });
   });
 
   window.addEventListener("popstate", () => {
@@ -2251,10 +2142,8 @@ elements.loadingPanel.hidden = true;
 elements.analyzeButton.disabled = true;
 elements.loadSampleButton.disabled = true;
 loadStoredAuthToken();
-applyProviderPreset(elements.llmProvider.value);
 bindEvents();
 showPage(getPageFromHash(), { push: false });
-syncAiModeUi();
 updateAuthUi();
 detectBackend();
 loadKeywords();

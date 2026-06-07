@@ -23,7 +23,7 @@ Render 免费实例休眠后，第一次请求可能需要等待服务唤醒。
 2. 粘贴岗位描述，或一次上传最多 6 个 JD 截图、DOCX/PDF 文件。
 3. 系统合并并清洗 JD，识别岗位职责、任职要求、加分项和技术问题。
 4. 基础规则层生成稳定匹配分、能力维度和 Gap Evidence。
-5. 用户可以继续调用站点默认 LLM，或使用自己的 API Key 生成增强建议。
+5. 用户可以继续调用站点默认 LLM 生成增强建议；浏览器不会接触或保存 API Key。
 6. 分析完成后可以选择“匹配其他 JD”，只清空当前岗位内容并保留简历。
 
 登录用户的分析结果会保存到自己的 History 页面；游客可以直接分析，但不会保存历史。
@@ -46,7 +46,7 @@ Render 免费实例休眠后，第一次请求可能需要等待服务唤醒。
 - 判断证书与奖项的岗位相关性和可信度；无法核验时不加分。
 - 从用户提供的材料中识别公司、岗位和规模，并模拟目标岗位 HR 初筛视角。
 - 区分应写在简历中的能力证据与通常由招聘网站表单单独填写的信息。
-- 默认 LLM 与用户自带 API Key 的建议分别保存，切换模式不会清空已有结果。
+- 前端只提交简历和 JD，API Key、Base URL、模型名均由 Render 环境变量管理。
 
 ### 账户与数据
 
@@ -68,39 +68,42 @@ LLM 只负责结构化语义分析和优化建议，不直接覆盖稳定规则�
 - 本地 Python 分析脚本与 FastAPI API。
 - 简历文档解析、多 JD 输入、截图 OCR 和 LLM JD 清洗。
 - 稳定规则分、增强参考分和结构化 AI 建议。
-- 站点默认 LLM 与 BYOK 双模式。
+- 站点默认 LLM 的服务端安全调用链。
 - 基础账户、Postgres 数据库、用户级历史记录和删除功能。
+- LLM 输入长度、60 秒超时、10 并发上限和基于 IP 的调用限额。
 - GitHub Pages 与 Render 云端部署。
 
 暂未包含：
 
 - 邮箱验证、找回密码和第三方登录。
 - 扫描版 PDF 的整页 OCR。
-- 用户每日免费次数、Token 配额和完整成本控制。
+- Token 精确计费、账号级额度和管理后台。
 - 经过人工标注数据校准的评分模型。
 - 有可靠来源的公司历史招聘案例库和 RAG 检索。
 - 会员、支付和简历版本管理。
 
 ## 账户、历史和隐私
 
-当前项目已经接入基础数据库。数据库包含三类核心数据：
+当前项目已经接入基础数据库。数据库包含四类核心数据：
 
 - `users`：保存用户邮箱、密码哈希和登录时间
 - `auth_sessions`：保存登录 session token 的哈希，用于识别当前用户
 - `analysis_history`：保存登录用户的分析历史
+- `llm_usage_events`：保存哈希后的 IP、接口名、输入长度、状态和耗时，用于限流和运行监控
 
-登录用户完成一次分析后，前端会把结果保存到后端数据库。保存字段包括：
+登录用户完成一次分析后，前端会把分析摘要保存到后端数据库。新记录保存字段包括：
 
 ```text
-user_id, resume_text, job_description, match_score, strengths, weaknesses, suggestions, created_at
+user_id, match_score, strengths, weaknesses, suggestions, created_at
 ```
 
-用户只能读取自己的历史记录，也只能删除自己的记录。游客模式不会保存分析历史。
+为兼容已有数据库表，`resume_text` 和 `job_description` 字段仍然存在，但新记录写入空字符串。完整简历和 JD 默认不保存，也不会从 History API 返回。用户只能读取自己的历史记录，也只能删除自己的记录；游客模式不会保存分析历史。
 
 隐私边界：
 
-- 我们会保存你的账号信息和分析历史
-- 我们不会公开你的简历内容
+- 我们会保存账号信息、分析摘要和必要的限流记录
+- 默认不保存完整简历或完整岗位 JD
+- API Key 不会写入数据库、前端或 GitHub
 - 你可以在 History 页面删除自己的分析记录
 - 请不要上传身份证、护照、银行卡、验证码等敏感信息
 
@@ -135,15 +138,7 @@ py -m venv .venv
 
 本地前端会自动检测 `http://localhost:8001`。后端在线时使用 API 模式；后端未运行时使用浏览器本地分析。
 
-启用 LLM 建议层：
-
-```powershell
-$env:OPENAI_API_KEY="你的 OpenAI API Key"
-$env:OPENAI_MODEL="gpt-5.5"
-.\.venv\Scripts\python.exe -m uvicorn api.server:app --reload --port 8001
-```
-
-使用第三方 OpenAI-compatible API：
+启用服务端 LLM 建议层：
 
 ```powershell
 $env:LLM_PROVIDER="deepseek"
@@ -151,10 +146,13 @@ $env:LLM_API_STYLE="chat_completions"
 $env:LLM_BASE_URL="https://api.deepseek.com"
 $env:LLM_API_KEY="你的第三方 API Key"
 $env:LLM_MODEL="deepseek-v4-flash"
+$env:LLM_REQUEST_TIMEOUT_SECONDS="60"
+$env:MAX_LLM_CONCURRENCY="10"
+$env:RATE_LIMIT_SALT="请替换为随机长字符串"
 .\.venv\Scripts\python.exe -m uvicorn api.server:app --reload --port 8001
 ```
 
-也可以在网页里的 AI 建议层填写用户自己的 API Key。该 Key 只随本次请求发送到后端，不会写入 GitHub、数据库或浏览器本地存储。
+生产环境中，上述值只应配置在 Render 的 **Environment Variables**。前端不提供 API Key 或 Base URL 输入框，也不会直接请求 DeepSeek。
 
 输出 JSON：
 
@@ -219,20 +217,49 @@ py -X utf8 scripts/analyze_match.py --resume local_inputs/my_resume.txt --job lo
 ```text
 GitHub Pages 前端
         │
-        ├── 浏览器本地规则分析与图片 OCR
-        │
-        └── HTTPS API 请求
+        ├── 浏览器 OCR：把 JD 截图转成文字
+        └── 只发送简历和 JD 的 HTTPS 请求
                 │
                 ▼
         Render FastAPI 后端
+          ├── 从 Environment Variables 读取 LLM Key / Base URL
+          ├── 8,000 + 8,000 字符校验、IP 限流、60 秒超时
+          ├── 最多同时处理 10 个 LLM 请求
           ├── 文档文本提取
           ├── 用户认证与历史记录
           ├── 稳定评分与结果整合
-          └── DeepSeek / 用户自带 LLM
+          └── 调用 DeepSeek 等服务端 LLM
                 │
                 ▼
-          Postgres 数据库
+          Neon Postgres
+          ├── 用户与登录 Session
+          ├── 分析摘要
+          └── 哈希 IP、输入长度、状态和耗时
 ```
+
+### 安全与成本控制
+
+- `/api/normalize/job`：每个 IP 每分钟 5 次、24 小时滚动窗口内 30 次。
+- `/api/ai-suggestions`：每个 IP 每分钟 3 次、24 小时滚动窗口内 20 次。
+- 简历最多 8,000 字符，JD 最多 8,000 字符，总输入最多 16,000 字符。
+- 单次 LLM 请求超时为 60 秒；超过 10 个并发请求时直接返回“当前服务器繁忙，请稍后再试”。
+- 日志只记录接口名、输入字符数、状态和耗时，不记录完整简历、JD 或 API Key。
+- `RATE_LIMIT_SALT` 用于把 IP 做不可逆 HMAC 哈希；数据库不保存原始 IP。
+- 如果部署过 v0.7 之前允许浏览器传入 `base_url` 的版本，升级后应在 LLM 控制台轮换一次 API Key，再把新 Key 只写入 Render Environment Variables。
+
+### LLM 当前负责什么
+
+LLM 不直接决定稳定规则分。它当前负责：
+
+- 清洗 OCR 或网页复制产生的 JD 噪音，并合并岗位职责、任职要求、加分项和技术问题。
+- 规范化岗位要求，输出 `must_have`、`important`、`nice_to_have` 与 1-5 权重。
+- 判断简历对岗位要求的证据强度、缺口程度和可信度。
+- 生成量化 Gap Evidence、优先修改动作和基于原简历事实的改写示例。
+- 评估证书与奖项的岗位相关性；无法验证时标记为 `unverified` 且不加分。
+- 在用户提供的公司与岗位信息范围内模拟 HR 初筛视角，不编造外部招聘案例。
+- 区分应写入简历的能力证据与通常由网申表单单独收集的到岗信息。
+
+完整规则见 [`docs/LLM_ADVICE.md`](docs/LLM_ADVICE.md)。
 
 ## 项目结构
 

@@ -24,3 +24,9 @@ services:
         sync: false
       - key: LLM_MODEL
         sync: false
+      - key: LLM_REQUEST_TIMEOUT_SECONDS
+        value: "60"
+      - key: MAX_LLM_CONCURRENCY
+        value: "10"
+      - key: RATE_LIMIT_SALT
+        sync: false

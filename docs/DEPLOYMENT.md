@@ -136,6 +136,9 @@ LLM_API_STYLE=chat_completions
 LLM_BASE_URL=https://api.deepseek.com
 LLM_API_KEY=<your api key>
 LLM_MODEL=deepseek-v4-flash
+LLM_REQUEST_TIMEOUT_SECONDS=60
+MAX_LLM_CONCURRENCY=10
+RATE_LIMIT_SALT=<long random string>
 ```
 
 ### 4. 测试云端后端
@@ -168,6 +171,8 @@ https://unknownhalfcold.github.io/ai-resume-job-matcher/?api=https://你的-rend
 ## 重要限制
 
 - 当前账户系统是 MVP：没有邮箱验证码、找回密码、会员额度和支付。
-- 登录用户完成分析后会保存简历文本、岗位 JD 和分析结果；游客模式不会保存历史。
+- 登录用户完成分析后只保存分数、优势、缺口、建议和创建时间；默认不保存完整简历或岗位 JD，游客模式不会保存历史。
+- API Key 和 Base URL 只配置在 Render Environment Variables，不能写入前端或由用户请求传入。
+- LLM 日志只记录输入长度、状态和耗时，不记录简历或 JD 正文。
 - 生产环境建议把前端 token 改成后端 `HttpOnly Cookie`。
 - Render 免费 Web Service 会休眠，第一次访问可能需要等待。

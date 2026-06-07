@@ -4,10 +4,11 @@ import os
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -30,6 +31,12 @@ from api.llm_advisor import (
     get_llm_metadata,
     normalize_job_text,
 )
+from api.request_controls import (
+    complete_usage_event,
+    enforce_rate_limit,
+    get_request_control_metadata,
+    llm_request_slot,
+)
 from scripts.analyze_match import analyze, load_keywords
 
 
@@ -42,39 +49,40 @@ DEFAULT_ALLOWED_ORIGINS = (
 )
 
 
-class AnalyzeRequest(BaseModel):
-    resume: str = Field(..., min_length=1)
-    job: str = Field(..., min_length=1)
+MAX_RESUME_CHARS = 8000
+MAX_JOB_CHARS = 8000
+MAX_TOTAL_INPUT_CHARS = 16000
 
 
-class LLMRequestConfig(BaseModel):
-    provider: str | None = Field(default=None, max_length=64)
-    api_key: str | None = Field(default=None, max_length=4096)
-    model: str | None = Field(default=None, max_length=128)
-    api_style: str | None = Field(default=None, max_length=32)
-    base_url: str | None = Field(default=None, max_length=512)
-    max_output_tokens: int | None = Field(default=None, ge=300, le=6000)
-    temperature: float | None = Field(default=None, ge=0, le=1)
+class StrictRequestModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class AnalyzeRequest(StrictRequestModel):
+    resume: str = Field(..., min_length=1, max_length=MAX_RESUME_CHARS)
+    job: str = Field(..., min_length=1, max_length=MAX_JOB_CHARS)
+
+    @model_validator(mode="after")
+    def validate_total_input_length(self) -> "AnalyzeRequest":
+        if len(self.resume) + len(self.job) > MAX_TOTAL_INPUT_CHARS:
+            raise ValueError(f"Total input must not exceed {MAX_TOTAL_INPUT_CHARS} characters.")
+        return self
 
 
 class AISuggestionsRequest(AnalyzeRequest):
-    analysis: dict[str, Any] | None = None
-    llm_config: LLMRequestConfig | None = None
+    pass
 
 
-class JobNormalizationRequest(BaseModel):
-    raw_text: str = Field(..., min_length=1, max_length=50000)
-    llm_config: LLMRequestConfig | None = None
+class JobNormalizationRequest(StrictRequestModel):
+    raw_text: str = Field(..., min_length=1, max_length=MAX_JOB_CHARS)
 
 
-class AuthRequest(BaseModel):
+class AuthRequest(StrictRequestModel):
     email: str = Field(..., min_length=3, max_length=320)
     password: str = Field(..., min_length=8, max_length=128)
 
 
-class HistoryCreateRequest(BaseModel):
-    resume_text: str = Field(..., min_length=1, max_length=120000)
-    job_description: str = Field(..., min_length=1, max_length=60000)
+class HistoryCreateRequest(StrictRequestModel):
     match_score: int = Field(..., ge=0, le=100)
     strengths: list[str] = Field(default_factory=list, max_length=30)
     weaknesses: list[str] = Field(default_factory=list, max_length=30)
@@ -114,6 +122,23 @@ app.add_middleware(
     allow_headers=["Content-Type", "Authorization"],
 )
 
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_exception_handler(
+    request: Request,
+    exc: RequestValidationError,
+) -> UTF8JSONResponse:
+    del request
+    safe_errors = [
+        {
+            "type": error.get("type"),
+            "loc": error.get("loc"),
+            "msg": error.get("msg"),
+        }
+        for error in exc.errors()
+    ]
+    return UTF8JSONResponse(status_code=422, content={"detail": safe_errors})
+
 KEYWORDS = load_keywords()
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 
@@ -131,8 +156,6 @@ def serialize_history_record(record: AnalysisHistory) -> dict[str, Any]:
     return {
         "id": record.id,
         "user_id": record.user_id,
-        "resume_text": record.resume_text,
-        "job_description": record.job_description,
         "match_score": record.match_score,
         "strengths": record.strengths or [],
         "weaknesses": record.weaknesses or [],
@@ -156,6 +179,7 @@ def health() -> dict[str, Any]:
         "keyword_count": len(KEYWORDS),
         **get_database_metadata(),
         **get_llm_metadata(),
+        **get_request_control_metadata(),
     }
 
 
@@ -230,8 +254,8 @@ def create_history_record(
 ) -> dict[str, Any]:
     record = AnalysisHistory(
         user_id=current_user.id,
-        resume_text=payload.resume_text,
-        job_description=payload.job_description,
+        resume_text="",
+        job_description="",
         match_score=payload.match_score,
         strengths=payload.strengths,
         weaknesses=payload.weaknesses,
@@ -330,16 +354,27 @@ async def extract_job_document(file: UploadFile = File(...)) -> dict[str, Any]:
 
 
 @app.post("/api/normalize/job")
-def normalize_job(payload: JobNormalizationRequest) -> dict[str, Any]:
-    config_override = payload.llm_config.model_dump(exclude_none=True) if payload.llm_config else None
-    llm_config = get_llm_config(config_override)
-
-    try:
-        normalized = normalize_job_text(payload.raw_text, config_override=config_override)
-    except LLMConfigurationError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"LLM JD normalization failed: {exc}") from exc
+def normalize_job(
+    payload: JobNormalizationRequest,
+    request: Request,
+    session: Session = Depends(get_database_session),
+) -> dict[str, Any]:
+    llm_config = get_llm_config()
+    with llm_request_slot() as started_at:
+        usage_event = enforce_rate_limit(session, request, "normalize_job", len(payload.raw_text))
+        try:
+            normalized = normalize_job_text(payload.raw_text)
+        except LLMConfigurationError as exc:
+            complete_usage_event(session, usage_event, "configuration_error", started_at)
+            raise HTTPException(status_code=503, detail="站点 LLM 暂未配置，请稍后再试。") from exc
+        except Exception as exc:
+            is_timeout = "timeout" in exc.__class__.__name__.lower()
+            status = "timeout" if is_timeout else "error"
+            complete_usage_event(session, usage_event, status, started_at)
+            if is_timeout:
+                raise HTTPException(status_code=504, detail="LLM 请求超过 60 秒，请稍后再试。") from exc
+            raise HTTPException(status_code=502, detail="LLM JD 整理失败，请稍后再试。") from exc
+        complete_usage_event(session, usage_event, "success", started_at)
 
     return {
         "engine": "llm_job_normalizer",
@@ -351,17 +386,33 @@ def normalize_job(payload: JobNormalizationRequest) -> dict[str, Any]:
 
 
 @app.post("/api/ai-suggestions")
-def ai_suggestions(payload: AISuggestionsRequest) -> dict[str, Any]:
-    analysis = payload.analysis or analyze(payload.resume, payload.job, keywords=KEYWORDS)
-    config_override = payload.llm_config.model_dump(exclude_none=True) if payload.llm_config else None
-    llm_config = get_llm_config(config_override)
-
-    try:
-        advice = generate_advice(payload.resume, payload.job, analysis, config_override=config_override)
-    except LLMConfigurationError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"LLM request failed: {exc}") from exc
+def ai_suggestions(
+    payload: AISuggestionsRequest,
+    request: Request,
+    session: Session = Depends(get_database_session),
+) -> dict[str, Any]:
+    analysis = analyze(payload.resume, payload.job, keywords=KEYWORDS)
+    llm_config = get_llm_config()
+    with llm_request_slot() as started_at:
+        usage_event = enforce_rate_limit(
+            session,
+            request,
+            "ai_suggestions",
+            len(payload.resume) + len(payload.job),
+        )
+        try:
+            advice = generate_advice(payload.resume, payload.job, analysis)
+        except LLMConfigurationError as exc:
+            complete_usage_event(session, usage_event, "configuration_error", started_at)
+            raise HTTPException(status_code=503, detail="站点 LLM 暂未配置，请稍后再试。") from exc
+        except Exception as exc:
+            is_timeout = "timeout" in exc.__class__.__name__.lower()
+            status = "timeout" if is_timeout else "error"
+            complete_usage_event(session, usage_event, status, started_at)
+            if is_timeout:
+                raise HTTPException(status_code=504, detail="LLM 请求超过 60 秒，请稍后再试。") from exc
+            raise HTTPException(status_code=502, detail="AI 建议生成失败，请稍后再试。") from exc
+        complete_usage_event(session, usage_event, "success", started_at)
 
     return {
         "engine": "llm_advice",
