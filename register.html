@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Register - AI Resume Job Matcher</title>
+</head>
+<body>
+  <h1>Create Account</h1>
+
+  <input id="email" type="email" placeholder="Email" />
+  <input id="password" type="password" placeholder="Password" />
+  <button id="registerBtn">Register</button>
+
+  <p id="message"></p>
+
+  <p>
+    Already have an account?
+    <a href="login.html">Login</a>
+  </p>
+
+  <script type="module">
+    import { signUp } from "./auth.js";
+
+    const registerBtn = document.getElementById("registerBtn");
+    const message = document.getElementById("message");
+
+    registerBtn.addEventListener("click", async () => {
+      const email = document.getElementById("email").value;
+      const password = document.getElementById("password").value;
+
+      if (!email || !password) {
+        message.innerText = "Please enter your email and password.";
+        return;
+      }
+
+      try {
+        await signUp(email, password);
+        message.innerText = "Registration successful. Please login.";
+        setTimeout(() => {
+          window.location.href = "login.html";
+        }, 1000);
+      } catch (error) {
+        message.innerText = error.message;
+      }
+    });
+  </script>
+</body>
+</html>
