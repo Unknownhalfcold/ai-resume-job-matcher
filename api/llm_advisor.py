@@ -1117,6 +1117,20 @@ def create_openai_client(config: LLMConfig) -> Any:
     return OpenAI(**client_options)
 
 
+def get_chat_completion_options(config: LLMConfig) -> dict[str, Any]:
+    provider = config.provider.strip().lower()
+    base_url = (config.base_url or "").lower()
+    if provider == "deepseek" or "deepseek.com" in base_url:
+        return {
+            "extra_body": {
+                "thinking": {
+                    "type": "disabled",
+                }
+            }
+        }
+    return {}
+
+
 def extract_balanced_json_object(text: str) -> str | None:
     start = text.find("{")
     if start < 0:
@@ -1703,6 +1717,7 @@ def generate_with_chat_completions(
         response_format={"type": "json_object"},
         temperature=config.temperature,
         max_tokens=min(config.max_output_tokens, 1400),
+        **get_chat_completion_options(config),
     )
 
     content = response.choices[0].message.content
@@ -1734,6 +1749,7 @@ def generate_with_chat_completions(
             response_format={"type": "json_object"},
             temperature=0,
             max_tokens=min(config.max_output_tokens, 1400),
+            **get_chat_completion_options(config),
         )
 
         retry_content = retry_response.choices[0].message.content
@@ -1789,6 +1805,7 @@ def normalize_job_with_chat_completions(
         response_format={"type": "json_object"},
         temperature=0,
         max_tokens=min(config.max_output_tokens, 1800),
+        **get_chat_completion_options(config),
     )
 
     content = response.choices[0].message.content
