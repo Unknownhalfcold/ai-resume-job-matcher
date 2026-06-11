@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import json
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -34,6 +35,7 @@ from api.llm_advisor import (
     get_llm_analysis_contract,
     get_llm_config,
     get_llm_metadata,
+    get_llm_request_timeout_seconds,
     normalize_job_text,
 )
 from api.request_controls import (
@@ -157,6 +159,16 @@ def load_hiring_benchmarks() -> dict[str, Any]:
 
 
 HIRING_BENCHMARKS = load_hiring_benchmarks()
+LLM_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name_prefix="resume-llm")
+
+
+def run_llm_task(function: Any, *args: Any) -> Any:
+    future = LLM_EXECUTOR.submit(function, *args)
+    try:
+        return future.result(timeout=get_llm_request_timeout_seconds())
+    except FutureTimeoutError as exc:
+        future.cancel()
+        raise TimeoutError("LLM request exceeded the server deadline.") from exc
 
 
 def find_hiring_benchmark(job_text: str) -> dict[str, Any] | None:
@@ -408,7 +420,7 @@ def normalize_job(
     with llm_request_slot() as started_at:
         usage_event = enforce_rate_limit(session, request, "normalize_job", len(payload.raw_text))
         try:
-            normalized = normalize_job_text(payload.raw_text)
+            normalized = run_llm_task(normalize_job_text, payload.raw_text)
         except LLMConfigurationError as exc:
             complete_usage_event(session, usage_event, "configuration_error", started_at)
             raise HTTPException(status_code=503, detail="站点 LLM 暂未配置，请稍后再试。") from exc
@@ -447,7 +459,7 @@ def ai_suggestions(
             len(payload.resume) + len(payload.job),
         )
         try:
-            advice = generate_advice(payload.resume, payload.job, analysis)
+            advice = run_llm_task(generate_advice, payload.resume, payload.job, analysis)
         except LLMConfigurationError as exc:
             complete_usage_event(session, usage_event, "configuration_error", started_at)
             raise HTTPException(status_code=503, detail="站点 LLM 暂未配置，请稍后再试。") from exc

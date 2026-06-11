@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 
 DEFAULT_LLM_MODEL = "gpt-5.5"
-DEFAULT_MAX_OUTPUT_TOKENS = 2800
+DEFAULT_MAX_OUTPUT_TOKENS = 2000
 MAX_LLM_TIMEOUT_SECONDS = 28
 MAX_JOB_OCR_CANDIDATE_CHARS = 16000
 
@@ -732,6 +732,7 @@ SYSTEM_INSTRUCTIONS = """
 16. 如果提供了有来源的匿名录用背景基准，只能概括其教育层次、奖项证书、研究方向和实习类型；没有基准时必须使用 jd_only，四类背景列表保持为空。
 17. 建议要具体、直接、尖锐但不羞辱用户。指出可能导致 HR 淘汰的真实问题，并给出可执行的修正动作。
 18. 不要因用户专业名称与岗位名称不同就直接判定不匹配；应寻找课程、项目、研究、实习和成果中的可迁移证据。
+19. 所有原因、建议和示例保持精炼，每项优先使用一句话完成，不重复解释同一个结论。
 
 评分稳定性原则：
 - 关键词层负责可复现的显性覆盖分。
@@ -1000,8 +1001,37 @@ def build_chat_prompt(resume_text: str, job_text: str, analysis: dict[str, Any])
         [
             build_advice_input(resume_text, job_text, analysis),
             "请只返回 JSON 对象，不要使用 Markdown，不要包裹 ```json 代码块。",
-            "JSON 必须符合以下 schema：",
-            json.dumps(ADVICE_SCHEMA, ensure_ascii=False, indent=2),
+            (
+                "必须返回这些顶层字段：summary、normalized_job、score_assessment、scoring_rubric、"
+                "evidence_review、quantified_gaps、top_actions、rewrite_examples、credential_review、"
+                "company_role_context、application_form_guidance、hr_perspective、benchmark_comparison。"
+            ),
+            (
+                "字段名称和枚举值严格遵守系统指令。输出要精炼：职责 2-4 项、要求 3-6 项、"
+                "证据 3-5 项、缺口 2-4 项、行动 3-4 项、改写 1-2 项。"
+            ),
+            (
+                "嵌套字段：normalized_job={role_title,jd_summary,core_responsibilities,"
+                "requirements[{title,category,importance,weight,reason,evidence_expected}],"
+                "technical_questions[{question,skill_area,expected_evidence}]}; "
+                "score_assessment={semantic_match_score,experience_match_score,resume_quality_score,"
+                "semantic_reason,experience_reason,quality_reason}; "
+                "scoring_rubric[{dimension,weight,what_good_looks_like}]; "
+                "evidence_review[{title,importance,level,evidence_score,confidence,resume_evidence,gap,why_it_matters}]; "
+                "quantified_gaps[{requirement,importance,gap_score,current_evidence,missing_evidence,"
+                "impact_on_match,recommended_fix}]; "
+                "top_actions[{priority,action,target_section,example}]; "
+                "rewrite_examples[{before,after,why_better}]; "
+                "credential_review[{name,credential_type,relevance_score,credibility,score_bonus,rationale}]; "
+                "company_role_context={company_name,company_scale,role_title,context_source,"
+                "hiring_context_summary,historical_hiring_evidence,confidence}; "
+                "application_form_guidance={keep_in_resume,usually_form_only,avoid_duplicate_items}; "
+                "hr_perspective={screening_decision,first_screen_strengths,first_screen_concerns,"
+                "likely_interview_questions}; "
+                "benchmark_comparison={benchmark_available,basis,source_notice,typical_education_background,"
+                "common_awards_or_credentials,common_research_directions,common_internship_experience,"
+                "candidate_comparison}。"
+            ),
         ]
     )
 

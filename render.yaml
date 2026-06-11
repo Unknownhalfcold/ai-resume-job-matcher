@@ -27,7 +27,7 @@ services:
       - key: LLM_REQUEST_TIMEOUT_SECONDS
         value: "28"
       - key: LLM_MAX_OUTPUT_TOKENS
-        value: "2800"
+        value: "2000"
       - key: LLM_RETRY_ON_SCHEMA_ERROR
         value: "false"
       - key: MAX_LLM_CONCURRENCY
