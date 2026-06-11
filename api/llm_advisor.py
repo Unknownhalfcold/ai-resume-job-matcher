@@ -195,6 +195,50 @@ class HRPerspective(BaseModel):
     likely_interview_questions: list[str] = Field(max_length=6)
 
 
+class FastRequirementItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str
+    category: str
+    importance: Literal["must_have", "important", "nice_to_have"]
+    weight: int = Field(ge=1, le=5)
+    evidence_expected: str
+
+
+class FastEvidenceItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str
+    importance: Literal["must_have", "important", "nice_to_have"]
+    level: Literal["strong", "medium", "weak", "missing"]
+    evidence_score: int = Field(ge=0, le=100)
+    confidence: int = Field(ge=0, le=100)
+    resume_evidence: str
+    gap: str
+
+
+class FastAdvicePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    summary: str
+    role_title: str
+    jd_summary: str
+    core_responsibilities: list[str] = Field(min_length=2, max_length=4)
+    requirements: list[FastRequirementItem] = Field(min_length=3, max_length=6)
+    technical_questions: list[TechnicalQuestionItem] = Field(max_length=3)
+    score_assessment: ScoreAssessment
+    evidence_review: list[FastEvidenceItem] = Field(min_length=3, max_length=5)
+    top_actions: list[TopActionItem] = Field(min_length=3, max_length=4)
+    credential_review: list[CredentialReviewItem] = Field(max_length=5)
+    company_name: str
+    company_scale: Literal["large", "medium", "small", "startup", "unknown"]
+    hiring_context_summary: str
+    screening_decision: Literal["strong_pass", "borderline", "weak_pass", "reject"]
+    first_screen_strengths: list[str] = Field(max_length=4)
+    first_screen_concerns: list[str] = Field(max_length=4)
+    likely_interview_questions: list[str] = Field(max_length=4)
+
+
 class BenchmarkComparison(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1002,35 +1046,24 @@ def build_chat_prompt(resume_text: str, job_text: str, analysis: dict[str, Any])
             build_advice_input(resume_text, job_text, analysis),
             "请只返回 JSON 对象，不要使用 Markdown，不要包裹 ```json 代码块。",
             (
-                "必须返回这些顶层字段：summary、normalized_job、score_assessment、scoring_rubric、"
-                "evidence_review、quantified_gaps、top_actions、rewrite_examples、credential_review、"
-                "company_role_context、application_form_guidance、hr_perspective、benchmark_comparison。"
+                "为了降低延迟，只返回这些顶层字段：summary、role_title、jd_summary、"
+                "core_responsibilities、requirements、technical_questions、score_assessment、"
+                "evidence_review、top_actions、credential_review、company_name、company_scale、"
+                "hiring_context_summary、screening_decision、first_screen_strengths、"
+                "first_screen_concerns、likely_interview_questions。"
             ),
             (
                 "字段名称和枚举值严格遵守系统指令。输出要精炼：职责 2-4 项、要求 3-6 项、"
-                "证据 3-5 项、缺口 2-4 项、行动 3-4 项、改写 1-2 项。"
+                "证据 3-5 项、行动 3-4 项。"
             ),
             (
-                "嵌套字段：normalized_job={role_title,jd_summary,core_responsibilities,"
-                "requirements[{title,category,importance,weight,reason,evidence_expected}],"
-                "technical_questions[{question,skill_area,expected_evidence}]}; "
+                "嵌套字段：requirements[{title,category,importance,weight,evidence_expected}]; "
+                "technical_questions[{question,skill_area,expected_evidence}]; "
                 "score_assessment={semantic_match_score,experience_match_score,resume_quality_score,"
                 "semantic_reason,experience_reason,quality_reason}; "
-                "scoring_rubric[{dimension,weight,what_good_looks_like}]; "
-                "evidence_review[{title,importance,level,evidence_score,confidence,resume_evidence,gap,why_it_matters}]; "
-                "quantified_gaps[{requirement,importance,gap_score,current_evidence,missing_evidence,"
-                "impact_on_match,recommended_fix}]; "
+                "evidence_review[{title,importance,level,evidence_score,confidence,resume_evidence,gap}]; "
                 "top_actions[{priority,action,target_section,example}]; "
-                "rewrite_examples[{before,after,why_better}]; "
-                "credential_review[{name,credential_type,relevance_score,credibility,score_bonus,rationale}]; "
-                "company_role_context={company_name,company_scale,role_title,context_source,"
-                "hiring_context_summary,historical_hiring_evidence,confidence}; "
-                "application_form_guidance={keep_in_resume,usually_form_only,avoid_duplicate_items}; "
-                "hr_perspective={screening_decision,first_screen_strengths,first_screen_concerns,"
-                "likely_interview_questions}; "
-                "benchmark_comparison={benchmark_available,basis,source_notice,typical_education_background,"
-                "common_awards_or_credentials,common_research_directions,common_internship_experience,"
-                "candidate_comparison}。"
+                "credential_review[{name,credential_type,relevance_score,credibility,score_bonus,rationale}]。"
             ),
         ]
     )
@@ -1170,6 +1203,135 @@ def validate_advice(raw_advice: dict[str, Any]) -> dict[str, Any]:
         remaining_credential_bonus -= item["score_bonus"]
 
     return advice
+
+
+def expand_fast_advice(raw_advice: dict[str, Any]) -> dict[str, Any]:
+    try:
+        fast = FastAdvicePayload.model_validate(raw_advice).model_dump()
+    except ValidationError as exc:
+        raise LLMResponseError(f"Model returned invalid fast advice JSON: {exc}") from exc
+
+    requirements = [
+        {
+            **item,
+            "reason": f"该要求在当前 JD 中被归为 {item['importance']}。",
+        }
+        for item in fast["requirements"]
+    ]
+    evidence_review = [
+        {
+            **item,
+            "why_it_matters": (
+                "这是岗位核心准入证据。"
+                if item["importance"] == "must_have"
+                else "这是影响初筛判断的重要岗位证据。"
+                if item["importance"] == "important"
+                else "这是能提高竞争力的补充证据。"
+            ),
+        }
+        for item in fast["evidence_review"]
+    ]
+
+    gap_candidates = sorted(
+        evidence_review,
+        key=lambda item: (
+            item["level"] not in {"missing", "weak"},
+            item["evidence_score"],
+        ),
+    )[:4]
+    quantified_gaps = []
+    for index, item in enumerate(gap_candidates):
+        action = fast["top_actions"][min(index, len(fast["top_actions"]) - 1)]
+        quantified_gaps.append(
+            {
+                "requirement": item["title"],
+                "importance": item["importance"],
+                "gap_score": 100 - item["evidence_score"],
+                "current_evidence": item["resume_evidence"],
+                "missing_evidence": item["gap"],
+                "impact_on_match": (
+                    "high"
+                    if item["importance"] == "must_have"
+                    else "medium"
+                    if item["importance"] == "important"
+                    else "low"
+                ),
+                "recommended_fix": action["action"],
+            }
+        )
+
+    assessment = fast["score_assessment"]
+    full_advice = {
+        "summary": fast["summary"],
+        "normalized_job": {
+            "role_title": fast["role_title"],
+            "jd_summary": fast["jd_summary"],
+            "core_responsibilities": fast["core_responsibilities"],
+            "requirements": requirements,
+            "technical_questions": fast["technical_questions"],
+        },
+        "score_assessment": assessment,
+        "scoring_rubric": [
+            {
+                "dimension": "语义匹配",
+                "weight": 5,
+                "what_good_looks_like": assessment["semantic_reason"],
+            },
+            {
+                "dimension": "经历匹配",
+                "weight": 5,
+                "what_good_looks_like": assessment["experience_reason"],
+            },
+            {
+                "dimension": "简历质量",
+                "weight": 3,
+                "what_good_looks_like": assessment["quality_reason"],
+            },
+        ],
+        "evidence_review": evidence_review,
+        "quantified_gaps": quantified_gaps,
+        "top_actions": fast["top_actions"],
+        "rewrite_examples": [
+            {
+                "before": "原简历中对应经历的现有表述",
+                "after": action["example"],
+                "why_better": action["action"],
+            }
+            for action in fast["top_actions"][:2]
+        ],
+        "credential_review": fast["credential_review"],
+        "company_role_context": {
+            "company_name": fast["company_name"],
+            "company_scale": fast["company_scale"],
+            "role_title": fast["role_title"],
+            "context_source": "job_description" if fast["company_name"] else "unknown",
+            "hiring_context_summary": fast["hiring_context_summary"],
+            "historical_hiring_evidence": "用户材料未提供，无法核验",
+            "confidence": 80 if fast["company_name"] else 50,
+        },
+        "application_form_guidance": {
+            "keep_in_resume": ["教育背景", "相关实习或项目", "技能与量化成果"],
+            "usually_form_only": ["可到岗日期", "每周实习天数", "期望薪资", "工作地点偏好"],
+            "avoid_duplicate_items": ["身份证号", "网申来源", "是否接受调剂"],
+        },
+        "hr_perspective": {
+            "screening_decision": fast["screening_decision"],
+            "first_screen_strengths": fast["first_screen_strengths"],
+            "first_screen_concerns": fast["first_screen_concerns"],
+            "likely_interview_questions": fast["likely_interview_questions"],
+        },
+        "benchmark_comparison": {
+            "benchmark_available": False,
+            "basis": "jd_only",
+            "source_notice": "未提供可核验、匿名化的录用背景数据，本次仅依据当前 JD 分析。",
+            "typical_education_background": [],
+            "common_awards_or_credentials": [],
+            "common_research_directions": [],
+            "common_internship_experience": [],
+            "candidate_comparison": "没有可靠录用样本，不能把模型常识当作真实录用画像。",
+        },
+    }
+    return validate_advice(full_advice)
 
 
 def tidy_cleaned_job_text(raw_text: str) -> str:
@@ -1399,7 +1561,7 @@ def generate_with_chat_completions(
         ],
         response_format={"type": "json_object"},
         temperature=config.temperature,
-        max_tokens=config.max_output_tokens,
+        max_tokens=min(config.max_output_tokens, 1400),
     )
 
     content = response.choices[0].message.content
@@ -1407,7 +1569,7 @@ def generate_with_chat_completions(
         raise LLMResponseError("Model returned empty advice content.")
 
     try:
-        return validate_advice(parse_json_object(content))
+        return expand_fast_advice(parse_json_object(content))
     except LLMResponseError as first_error:
         if os.getenv("LLM_RETRY_ON_SCHEMA_ERROR", "false").lower() not in {"1", "true", "yes"}:
             raise first_error
@@ -1419,9 +1581,9 @@ def generate_with_chat_completions(
                     "role": "user",
                     "content": "\n\n".join(
                         [
-                            "上一次输出没有通过 JSON schema 校验，请重新生成完整 JSON。",
+                            "上一次快速分析输出没有通过 JSON 校验，请按快速字段重新生成。",
                             f"校验错误：{first_error}",
-                            "必须包含所有 required 字段，尤其是 normalized_job、score_assessment、scoring_rubric、evidence_review、quantified_gaps、top_actions、credential_review、company_role_context、benchmark_comparison、hr_perspective。",
+                            "必须包含 build_chat_prompt 列出的全部快速字段，不要返回完整建议层字段。",
                             "每个字符串尽量控制在 80 个中文字符以内，避免输出被截断。",
                             build_chat_prompt(resume_text, job_text, analysis),
                         ]
@@ -1430,13 +1592,13 @@ def generate_with_chat_completions(
             ],
             response_format={"type": "json_object"},
             temperature=0,
-            max_tokens=config.max_output_tokens,
+            max_tokens=min(config.max_output_tokens, 1400),
         )
 
         retry_content = retry_response.choices[0].message.content
         if not isinstance(retry_content, str) or not retry_content.strip():
             raise first_error
-        return validate_advice(parse_json_object(retry_content))
+        return expand_fast_advice(parse_json_object(retry_content))
 
 
 def normalize_job_with_responses_api(
