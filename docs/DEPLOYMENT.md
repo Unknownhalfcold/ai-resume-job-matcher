@@ -16,7 +16,7 @@ Neon Postgres 数据库
 
 ## 新增概念
 
-- `数据库`：网站的长期记忆。当前保存用户邮箱、密码哈希、登录 session 和登录用户的分析历史。
+- `数据库`：网站的长期记忆。启用 Supabase 后，Supabase 管理邮箱和登录 session，Neon 只保存业务用户映射、分析摘要和限流记录。
 - `密码哈希`：不是保存真实密码，而是保存不可逆的密码指纹。
 - `Postgres`：真实网站常用的关系型数据库。
 - `DATABASE_URL`：后端连接数据库用的地址，属于密钥，不要写进 GitHub。
@@ -136,10 +136,29 @@ LLM_API_STYLE=chat_completions
 LLM_BASE_URL=https://api.deepseek.com
 LLM_API_KEY=<your api key>
 LLM_MODEL=deepseek-v4-flash
-LLM_REQUEST_TIMEOUT_SECONDS=60
+LLM_REQUEST_TIMEOUT_SECONDS=28
+LLM_MAX_OUTPUT_TOKENS=2800
+LLM_RETRY_ON_SCHEMA_ERROR=false
 MAX_LLM_CONCURRENCY=10
 RATE_LIMIT_SALT=<long random string>
 ```
+
+启用 Supabase 邮箱登录：
+
+```text
+SUPABASE_URL=https://你的-project-ref.supabase.co
+SUPABASE_PUBLISHABLE_KEY=<publishable key>
+SUPABASE_REQUIRE_EMAIL_CONFIRMATION=true
+```
+
+`SUPABASE_PUBLISHABLE_KEY` 可以提供给浏览器；`service_role` 和 secret key 不可以。前端通过后端 `/api/auth/config` 获取公开配置，所以只需在 Render 保存一次。
+
+Supabase Dashboard 还需要设置：
+
+1. Authentication → Providers → Email：启用 Email 和 Confirm email。
+2. Authentication → URL Configuration：Site URL 使用 `https://www.jobmatcher.win`。
+3. Redirect URLs 添加 `https://www.jobmatcher.win/**` 与 `https://jobmatcher.win/**`。
+4. 正式开放注册前配置 Custom SMTP。
 
 ### 4. 测试云端后端
 
@@ -154,7 +173,9 @@ https://你的-render-service.onrender.com/health
 ```json
 {
   "status": "ok",
-  "database_type": "postgres"
+  "database_type": "postgres",
+  "auth_provider": "supabase",
+  "supabase_configured": true
 }
 ```
 
@@ -170,7 +191,7 @@ https://unknownhalfcold.github.io/ai-resume-job-matcher/?api=https://你的-rend
 
 ## 重要限制
 
-- 当前账户系统是 MVP：没有邮箱验证码、找回密码、会员额度和支付。
+- Supabase Auth 已支持邮箱验证和找回密码；生产邮件必须配置 Custom SMTP。
 - 登录用户完成分析后只保存分数、优势、缺口、建议和创建时间；默认不保存完整简历或岗位 JD，游客模式不会保存历史。
 - API Key 和 Base URL 只配置在 Render Environment Variables，不能写入前端或由用户请求传入。
 - LLM 日志只记录输入长度、状态和耗时，不记录简历或 JD 正文。

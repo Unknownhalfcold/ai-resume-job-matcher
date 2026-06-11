@@ -972,6 +972,60 @@ select:focus {
   margin-top: 14px;
 }
 
+.scoring-process {
+  margin-top: 14px;
+}
+
+.scoring-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.scoring-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: #fbfbfd;
+}
+
+.scoring-step > span {
+  display: grid;
+  flex: 0 0 26px;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: 50%;
+  color: #ffffff;
+  background: var(--blue);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.scoring-step div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.scoring-step strong,
+.scoring-step small {
+  overflow-wrap: anywhere;
+}
+
+.scoring-step strong {
+  font-size: 12px;
+}
+
+.scoring-step small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .ai-advice {
   margin-top: 16px;
 }
@@ -1336,6 +1390,7 @@ select:focus {
 .auth-card {
   display: grid;
   gap: 14px;
+  padding: 26px;
 }
 
 .auth-heading {
@@ -1351,12 +1406,49 @@ select:focus {
   line-height: 1.6;
 }
 
+.auth-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line-soft);
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.auth-meta span:not(:last-child)::after {
+  margin-left: 16px;
+  color: var(--line);
+  content: "·";
+}
+
 .auth-status[data-state="error"] {
   color: #b42318;
 }
 
 .auth-status[data-state="success"] {
   color: #0f6d43;
+}
+
+.auth-link {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  color: var(--blue);
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.auth-link:hover {
+  text-decoration: underline;
+}
+
+.auth-guest {
+  width: 100%;
+  border-top: 1px solid var(--line-soft);
 }
 
 .split-actions {
@@ -1496,6 +1588,10 @@ select:focus {
     grid-template-columns: 1fr;
   }
 
+  .scoring-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   textarea {
     min-height: 280px;
   }
@@ -1506,6 +1602,10 @@ select:focus {
 }
 
 @media (max-width: 680px) {
+  .scoring-steps {
+    grid-template-columns: 1fr;
+  }
+
   .topbar {
     grid-template-columns: 1fr;
     align-items: start;

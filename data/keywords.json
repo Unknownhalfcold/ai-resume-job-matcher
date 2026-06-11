@@ -52,7 +52,7 @@
     "name": "跨团队协作",
     "category": "协作能力",
     "weight": 2,
-    "aliases": ["跨团队", "协作", "研发", "设计团队", "沟通"],
+    "aliases": ["跨团队协作", "跨部门协作", "跨职能协作", "研发协同", "团队协作"],
     "suggestion": "如果岗位强调协作，建议补充你与研发、设计、运营或数据同学协作的具体场景；如果只是泛泛要求沟通能力，不需要过度改写。"
   },
   {
@@ -80,7 +80,7 @@
     "name": "Excel",
     "category": "数据能力",
     "weight": 2,
-    "aliases": ["excel", "表格"],
+    "aliases": ["excel", "电子表格"],
     "suggestion": "补充 Excel 用法，例如透视表、公式、数据清洗或可视化。"
   },
   {
@@ -108,7 +108,294 @@
     "name": "文档表达",
     "category": "通用能力",
     "weight": 2,
-    "aliases": ["文档", "表达", "写作", "逻辑分析"],
+    "aliases": ["文档撰写", "书面表达", "报告撰写", "技术写作", "逻辑表达"],
     "suggestion": "突出你写过 PRD、分析报告、项目总结或研究文档。"
+  },
+  {
+    "name": "Java",
+    "category": "软件工程",
+    "weight": 4,
+    "aliases": ["java", "spring", "spring boot"],
+    "suggestion": "说明使用 Java 完成的系统模块、接口、并发或性能优化工作。"
+  },
+  {
+    "name": "C/C++",
+    "category": "软件工程",
+    "weight": 4,
+    "aliases": ["c++", "c语言", "c 语言", "cplusplus"],
+    "suggestion": "补充 C/C++ 项目的应用场景、系统层能力或性能结果。"
+  },
+  {
+    "name": "前端开发",
+    "category": "软件工程",
+    "weight": 4,
+    "aliases": ["javascript", "typescript", "react", "vue", "前端开发"],
+    "suggestion": "写清技术栈、负责页面和交互，以及性能或用户体验改进。"
+  },
+  {
+    "name": "后端开发",
+    "category": "软件工程",
+    "weight": 4,
+    "aliases": ["后端开发", "服务端", "微服务", "restful", "接口开发"],
+    "suggestion": "说明接口、数据库、并发、稳定性和服务部署方面的实际工作。"
+  },
+  {
+    "name": "云原生与运维",
+    "category": "软件工程",
+    "weight": 3,
+    "aliases": ["docker", "kubernetes", "k8s", "云原生", "devops", "ci/cd"],
+    "suggestion": "补充容器化、自动部署、监控告警或云平台使用经历。"
+  },
+  {
+    "name": "机器学习",
+    "category": "人工智能",
+    "weight": 5,
+    "aliases": ["机器学习", "machine learning", "特征工程", "模型训练"],
+    "suggestion": "写明任务、数据规模、模型、评估指标和最终效果。"
+  },
+  {
+    "name": "深度学习",
+    "category": "人工智能",
+    "weight": 5,
+    "aliases": ["深度学习", "deep learning", "pytorch", "tensorflow"],
+    "suggestion": "说明网络结构、训练流程、指标和部署或推理优化。"
+  },
+  {
+    "name": "自然语言处理",
+    "category": "人工智能",
+    "weight": 4,
+    "aliases": ["自然语言处理", "nlp", "文本分类", "信息抽取"],
+    "suggestion": "补充语料、任务类型、模型方案和评估结果。"
+  },
+  {
+    "name": "计算机视觉",
+    "category": "人工智能",
+    "weight": 4,
+    "aliases": ["计算机视觉", "computer vision", "图像识别", "目标检测", "opencv"],
+    "suggestion": "说明视觉任务、数据集、算法和准确率或速度指标。"
+  },
+  {
+    "name": "统计建模",
+    "category": "数据与研究",
+    "weight": 4,
+    "aliases": ["统计分析", "统计建模", "回归分析", "假设检验", "计量经济"],
+    "suggestion": "写明研究问题、样本、方法、显著性和结论。"
+  },
+  {
+    "name": "R / MATLAB",
+    "category": "数据与研究",
+    "weight": 3,
+    "aliases": ["r语言", "r 语言", "matlab", "simulink"],
+    "suggestion": "说明使用工具完成的数据分析、仿真或科学计算任务。"
+  },
+  {
+    "name": "商业智能",
+    "category": "数据与研究",
+    "weight": 3,
+    "aliases": ["tableau", "power bi", "商业智能", "数据可视化", "dashboard"],
+    "suggestion": "补充看板指标、使用对象和由此支持的业务决策。"
+  },
+  {
+    "name": "财务分析",
+    "category": "金融财会",
+    "weight": 5,
+    "aliases": ["财务分析", "财务建模", "三张表", "现金流", "预算分析"],
+    "suggestion": "说明模型、核心指标、假设和分析结论。"
+  },
+  {
+    "name": "会计审计",
+    "category": "金融财会",
+    "weight": 4,
+    "aliases": ["会计", "审计", "财务报表", "税务", "成本核算"],
+    "suggestion": "补充使用的准则、底稿、科目或审计流程。"
+  },
+  {
+    "name": "投资估值",
+    "category": "金融财会",
+    "weight": 4,
+    "aliases": ["估值", "dcf", "可比公司", "投行", "投资分析", "证券行业研究"],
+    "suggestion": "写清估值方法、行业判断、关键假设和投资结论。"
+  },
+  {
+    "name": "风险管理",
+    "category": "金融财会",
+    "weight": 4,
+    "aliases": ["风险管理", "信用风险", "市场风险", "风控", "合规风险"],
+    "suggestion": "说明识别的风险、使用的方法和降低风险的结果。"
+  },
+  {
+    "name": "市场营销",
+    "category": "商业运营",
+    "weight": 4,
+    "aliases": ["市场营销", "品牌营销", "数字营销", "内容营销", "投放"],
+    "suggestion": "补充渠道、受众、预算、转化指标和复盘结论。"
+  },
+  {
+    "name": "运营增长",
+    "category": "商业运营",
+    "weight": 4,
+    "aliases": ["用户运营", "内容运营", "活动运营", "增长运营", "转化率"],
+    "suggestion": "说明目标用户、运营动作、指标变化和可复用的方法。"
+  },
+  {
+    "name": "销售与客户管理",
+    "category": "商业运营",
+    "weight": 4,
+    "aliases": ["销售", "客户管理", "crm", "商务拓展", "渠道拓展", "大客户"],
+    "suggestion": "写明客户类型、销售周期、成交或续约结果。"
+  },
+  {
+    "name": "供应链管理",
+    "category": "商业运营",
+    "weight": 4,
+    "aliases": ["供应链", "采购", "物流", "库存", "需求预测", "生产计划"],
+    "suggestion": "补充计划、库存、供应商或交付效率方面的量化结果。"
+  },
+  {
+    "name": "战略与咨询",
+    "category": "商业运营",
+    "weight": 4,
+    "aliases": ["战略分析", "管理咨询", "商业分析", "案例分析", "市场进入"],
+    "suggestion": "说明问题拆解、研究方法、分析框架和建议落地情况。"
+  },
+  {
+    "name": "机械设计",
+    "category": "工程技术",
+    "weight": 4,
+    "aliases": ["机械设计", "solidworks", "cad", "有限元", "ansys"],
+    "suggestion": "写清设计对象、软件、仿真验证和性能改进。"
+  },
+  {
+    "name": "自动化与控制",
+    "category": "工程技术",
+    "weight": 4,
+    "aliases": ["自动化", "plc", "控制系统", "机器人", "运动控制"],
+    "suggestion": "补充控制方案、硬件平台、调试过程和稳定性结果。"
+  },
+  {
+    "name": "电子与嵌入式",
+    "category": "工程技术",
+    "weight": 4,
+    "aliases": ["嵌入式", "单片机", "stm32", "电路设计", "pcb", "fpga"],
+    "suggestion": "说明硬件平台、通信协议、调试工具和实现功能。"
+  },
+  {
+    "name": "土木与结构",
+    "category": "工程技术",
+    "weight": 4,
+    "aliases": ["结构设计", "土木工程", "建筑设计", "bim", "revit", "施工管理"],
+    "suggestion": "补充项目类型、规范、建模计算和现场协同经验。"
+  },
+  {
+    "name": "地理与环境分析",
+    "category": "工程技术",
+    "weight": 4,
+    "aliases": ["gis", "arcgis", "遥感", "环境评价", "水文模型", "hec-ras"],
+    "suggestion": "说明空间数据、模型、研究区域和分析结论。"
+  },
+  {
+    "name": "实验设计",
+    "category": "自然科学",
+    "weight": 5,
+    "aliases": ["实验设计", "实验操作", "实验方案", "对照实验", "实验记录"],
+    "suggestion": "写明研究问题、实验条件、仪器、结果和误差控制。"
+  },
+  {
+    "name": "生命科学实验",
+    "category": "自然科学",
+    "weight": 4,
+    "aliases": ["pcr", "细胞培养", "蛋白纯化", "分子生物学", "基因测序"],
+    "suggestion": "说明实验技术、样本、质量控制和研究结论。"
+  },
+  {
+    "name": "化学分析",
+    "category": "自然科学",
+    "weight": 4,
+    "aliases": ["化学分析", "色谱", "质谱", "光谱", "有机合成", "hplc"],
+    "suggestion": "补充仪器方法、样品处理、检测指标和实验结果。"
+  },
+  {
+    "name": "材料研究",
+    "category": "自然科学",
+    "weight": 4,
+    "aliases": ["材料科学", "材料表征", "sem", "xrd", "纳米材料", "高分子"],
+    "suggestion": "说明材料体系、制备方法、表征手段和性能数据。"
+  },
+  {
+    "name": "临床与医学研究",
+    "category": "生命健康",
+    "weight": 5,
+    "aliases": ["临床研究", "医学研究", "病例", "临床试验", "循证医学", "生物统计"],
+    "suggestion": "说明研究设计、样本、伦理合规、统计方法和结论。"
+  },
+  {
+    "name": "法律研究",
+    "category": "法律与公共事务",
+    "weight": 5,
+    "aliases": ["法律检索", "法律研究", "合同审查", "诉讼", "尽职调查", "法务"],
+    "suggestion": "补充法律问题、检索依据、文书类型和处理结果。"
+  },
+  {
+    "name": "公共政策",
+    "category": "法律与公共事务",
+    "weight": 4,
+    "aliases": ["公共政策", "政策分析", "政府事务", "公共管理", "政策研究"],
+    "suggestion": "说明政策问题、研究材料、利益相关方和建议。"
+  },
+  {
+    "name": "教学与课程设计",
+    "category": "教育与人文",
+    "weight": 4,
+    "aliases": ["教学", "课程设计", "教案", "课堂管理", "教育评估"],
+    "suggestion": "补充教学对象、课程目标、教学方法和学习效果。"
+  },
+  {
+    "name": "学术研究",
+    "category": "教育与人文",
+    "weight": 4,
+    "aliases": ["文献综述", "学术研究", "研究方法", "论文写作", "课题研究"],
+    "suggestion": "写清研究问题、方法、资料来源、论文或研究产出。"
+  },
+  {
+    "name": "定性研究",
+    "category": "教育与人文",
+    "weight": 3,
+    "aliases": ["定性研究", "深度访谈", "扎根理论", "田野调查", "文本分析"],
+    "suggestion": "说明样本选择、编码方法、分析过程和主要发现。"
+  },
+  {
+    "name": "语言与翻译",
+    "category": "教育与人文",
+    "weight": 4,
+    "aliases": ["翻译", "口译", "本地化", "语言学", "英语专八", "雅思"],
+    "suggestion": "补充语言水平、专业领域、翻译量和质量控制方式。"
+  },
+  {
+    "name": "视觉与品牌设计",
+    "category": "设计与创意",
+    "weight": 4,
+    "aliases": ["平面设计", "品牌设计", "视觉设计", "photoshop", "illustrator"],
+    "suggestion": "说明设计目标、受众、工具、作品范围和效果反馈。"
+  },
+  {
+    "name": "交互与用户体验",
+    "category": "设计与创意",
+    "weight": 4,
+    "aliases": ["交互设计", "用户体验", "ui设计", "ux", "可用性测试"],
+    "suggestion": "写清用户问题、流程、原型、测试和迭代结果。"
+  },
+  {
+    "name": "视频与内容制作",
+    "category": "设计与创意",
+    "weight": 3,
+    "aliases": ["视频剪辑", "拍摄", "后期制作", "premiere", "after effects", "内容创作"],
+    "suggestion": "补充内容类型、负责环节、播放或互动数据。"
+  },
+  {
+    "name": "人力资源",
+    "category": "组织管理",
+    "weight": 4,
+    "aliases": ["人力资源", "招聘管理", "招聘运营", "人才招聘", "人才发展", "绩效管理", "员工关系"],
+    "suggestion": "说明负责模块、岗位数量、招聘效率或组织改进结果。"
   }
 ]

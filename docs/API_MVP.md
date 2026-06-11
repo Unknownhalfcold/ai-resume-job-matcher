@@ -4,7 +4,7 @@
 
 API MVP 用于跑通前后端通信链路。
 
-当前后端同时提供稳定规则分析和可选 LLM 建议。API Key、Base URL 和模型配置只从后端环境变量读取；未配置 `LLM_API_KEY` 或 `OPENAI_API_KEY` 时，规则分析接口照常可用，LLM 接口会提示未配置。
+当前后端同时提供关键词初步分析和九步 LLM 综合分析。API Key、Base URL 和模型配置只从后端环境变量读取；未配置 `LLM_API_KEY` 或 `OPENAI_API_KEY` 时，关键词分析接口照常可用，LLM 接口会提示未配置。
 
 ## 架构
 

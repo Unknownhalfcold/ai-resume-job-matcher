@@ -4,7 +4,12 @@ const state = {
   apiBaseUrl: "",
   apiAvailable: false,
   llmConfigured: false,
+  llmProvider: "",
+  llmModel: "",
   authToken: "",
+  authProvider: "legacy",
+  supabaseClient: null,
+  authRecoveryMode: false,
   currentUser: null,
   historyRecords: [],
   jdSources: [],
@@ -15,12 +20,14 @@ const state = {
 
 const BACKEND_TIMEOUT_MS = 12000;
 const API_HEALTH_TIMEOUT_MS = 25000;
-const LLM_REQUEST_TIMEOUT_MS = 65000;
+const LLM_REQUEST_TIMEOUT_MS = 32000;
 const MAX_RESUME_CHARS = 8000;
 const MAX_JOB_CHARS = 8000;
 const MAX_TOTAL_INPUT_CHARS = 16000;
 const AUTH_TOKEN_STORAGE_KEY = "airjm_auth_token";
 const CLOUD_API_BASE_URL = window.APP_CONFIG?.apiBaseUrl || "https://ai-resume-job-matcher-api.onrender.com";
+const SUPABASE_URL = window.APP_CONFIG?.supabaseUrl || "";
+const SUPABASE_PUBLISHABLE_KEY = window.APP_CONFIG?.supabasePublishableKey || "";
 const PAGE_NAMES = ["start", "analyze", "result", "history", "privacy"];
 const clipboardFileKeys = new WeakMap();
 let clipboardFileSequence = 0;
@@ -82,6 +89,7 @@ const elements = {
   scoreValue: document.querySelector("#score-value"),
   scoreLabel: document.querySelector("#score-label"),
   scoreDetail: document.querySelector("#score-detail"),
+  scoringSteps: document.querySelector("#scoring-steps"),
   matchedWeight: document.querySelector("#matched-weight"),
   totalWeight: document.querySelector("#total-weight"),
   matchedList: document.querySelector("#matched-list"),
@@ -106,12 +114,19 @@ const elements = {
   userChip: document.querySelector("#user-chip"),
   authModal: document.querySelector("#auth-modal"),
   authForm: document.querySelector("#auth-form"),
+  authTitle: document.querySelector("#auth-title"),
+  authCopy: document.querySelector("#auth-copy"),
+  authEmailFeature: document.querySelector("#auth-email-feature"),
   authClose: document.querySelector("#auth-close"),
+  authEmailField: document.querySelector("#auth-email-field"),
   authEmail: document.querySelector("#auth-email"),
+  authPasswordLabel: document.querySelector("#auth-password-label"),
   authPassword: document.querySelector("#auth-password"),
   authStatus: document.querySelector("#auth-status"),
   authRegister: document.querySelector("#auth-register"),
   authLogin: document.querySelector("#auth-login"),
+  authGuest: document.querySelector("#auth-guest"),
+  authReset: document.querySelector("#auth-reset"),
   historyRefresh: document.querySelector("#history-refresh"),
   historyStatus: document.querySelector("#history-status"),
   historyList: document.querySelector("#history-list"),
@@ -191,7 +206,9 @@ function updateProgress(value, step, message) {
 
 function getRuntimeLabel() {
   if (!state.apiAvailable) return "Browser fallback";
-  return state.llmConfigured ? "Cloud API + DeepSeek" : "Cloud API";
+  if (!state.llmConfigured) return "Cloud API";
+  const modelLabel = state.llmProvider || state.llmModel || "LLM";
+  return `Cloud API + ${modelLabel}`;
 }
 
 function getReadinessNote() {
@@ -199,7 +216,8 @@ function getReadinessNote() {
     return "基础规则加载中";
   }
   if (state.apiAvailable && state.llmConfigured) {
-    return "基础规则已加载 · 云端 API 和 DeepSeek 已连接";
+    const modelLabel = state.llmProvider || state.llmModel || "LLM";
+    return `基础规则已加载 · 云端 API 和 ${modelLabel} 已连接`;
   }
   if (state.apiAvailable) {
     return "基础规则已加载 · 云端 API 已连接";
@@ -642,6 +660,7 @@ async function ensureApiAvailable() {
 }
 
 function loadStoredAuthToken() {
+  if (state.authProvider === "supabase") return;
   try {
     state.authToken = window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) || "";
   } catch (error) {
@@ -651,6 +670,7 @@ function loadStoredAuthToken() {
 
 function setAuthToken(token) {
   state.authToken = token || "";
+  if (state.authProvider === "supabase") return;
   try {
     if (state.authToken) {
       window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, state.authToken);
@@ -679,6 +699,8 @@ function setAuthBusy(isBusy) {
   elements.authLogin.disabled = isBusy;
   elements.authRegister.disabled = isBusy;
   elements.authClose.disabled = isBusy;
+  elements.authGuest.disabled = isBusy;
+  elements.authReset.disabled = isBusy;
 }
 
 function updateAuthUi() {
@@ -696,28 +718,77 @@ function updateAuthUi() {
   }
 }
 
+function setAuthMode(mode = "default") {
+  const isRecovery = mode === "recovery";
+  state.authRecoveryMode = isRecovery;
+  elements.authTitle.textContent = isRecovery ? "设置新密码" : "登录或创建账户";
+  elements.authCopy.textContent = isRecovery
+    ? "请输入至少 8 位的新密码。完成后即可继续使用当前账户。"
+    : state.supabaseClient
+      ? "使用邮箱保存分析历史。注册后需要完成邮箱验证；也可以直接以游客模式使用分析工具。"
+      : "使用邮箱保存分析历史，也可以直接以游客模式使用分析工具。";
+  elements.authEmailFeature.textContent = state.supabaseClient ? "邮箱验证" : "邮箱登录";
+  elements.authEmailField.hidden = isRecovery;
+  elements.authEmail.required = !isRecovery;
+  elements.authPasswordLabel.textContent = isRecovery ? "New password" : "Password";
+  elements.authPassword.autocomplete = isRecovery ? "new-password" : "current-password";
+  elements.authRegister.hidden = isRecovery;
+  elements.authReset.hidden = isRecovery || !state.supabaseClient;
+  elements.authGuest.hidden = isRecovery;
+  elements.authLogin.textContent = isRecovery ? "更新密码" : "登录";
+}
+
 function openAuthModal() {
   if (!state.apiAvailable) {
     return;
   }
+  if (!state.authRecoveryMode) {
+    setAuthMode();
+  }
   elements.authModal.hidden = false;
-  setAuthStatus("密码至少 8 位。");
+  setAuthStatus(
+    state.supabaseClient
+      ? "注册后请前往邮箱完成验证。"
+      : "Supabase 尚未配置，当前使用兼容登录模式。",
+  );
   elements.authEmail.focus();
 }
 
 function closeAuthModal() {
   elements.authModal.hidden = true;
   elements.authForm.reset();
-  setAuthStatus("密码至少 8 位。");
+  setAuthMode();
+  setAuthStatus("注册后请前往邮箱完成验证。");
 }
 
 async function submitAuth(mode) {
   const email = elements.authEmail.value.trim();
   const password = elements.authPassword.value;
-  const endpoint = mode === "register" ? "/api/auth/register" : "/api/auth/login";
 
   if (!state.apiAvailable) {
     setAuthStatus("后端 API 暂未连接，无法使用账户功能。", "error");
+    return;
+  }
+
+  if (state.authRecoveryMode) {
+    if (!state.supabaseClient || password.length < 8) {
+      setAuthStatus("新密码至少需要 8 位。", "error");
+      return;
+    }
+    setAuthBusy(true);
+    setAuthStatus("正在更新密码...");
+    try {
+      const { error: updateError } = await state.supabaseClient.auth.updateUser({ password });
+      if (updateError) throw updateError;
+      setAuthStatus("密码已更新。", "success");
+      setAuthMode();
+      await fetchCurrentUser();
+      window.setTimeout(closeAuthModal, 520);
+    } catch (error) {
+      setAuthStatus(error.message, "error");
+    } finally {
+      setAuthBusy(false);
+    }
     return;
   }
 
@@ -730,6 +801,30 @@ async function submitAuth(mode) {
   setAuthStatus(mode === "register" ? "正在创建账户..." : "正在登录...");
 
   try {
+    if (state.supabaseClient) {
+      const result = mode === "register"
+        ? await state.supabaseClient.auth.signUp({
+            email,
+            password,
+            options: {
+              emailRedirectTo: `${window.location.origin}${window.location.pathname}#analyze`,
+            },
+          })
+        : await state.supabaseClient.auth.signInWithPassword({ email, password });
+      if (result.error) throw result.error;
+      if (!result.data.session) {
+        setAuthStatus("注册成功，请打开验证邮件完成确认后再登录。", "success");
+        return;
+      }
+      setAuthToken(result.data.session.access_token);
+      await fetchCurrentUser();
+      setAuthStatus("登录成功。", "success");
+      if (document.body.dataset.page === "history") loadHistoryRecords();
+      window.setTimeout(closeAuthModal, 420);
+      return;
+    }
+
+    const endpoint = mode === "register" ? "/api/auth/register" : "/api/auth/login";
     const response = await fetchJsonWithTimeout(
       `${state.apiBaseUrl}${endpoint}`,
       {
@@ -782,6 +877,9 @@ async function fetchCurrentUser() {
 
 async function logoutCurrentUser() {
   const token = state.authToken;
+  if (state.supabaseClient) {
+    await state.supabaseClient.auth.signOut();
+  }
   state.currentUser = null;
   state.historyRecords = [];
   setAuthToken("");
@@ -1217,6 +1315,84 @@ async function extractTextFromJdImage(file, fileIndex = 0, fileCount = 1) {
   }
 }
 
+async function requestPasswordReset() {
+  const email = elements.authEmail.value.trim();
+  if (!state.supabaseClient) {
+    setAuthStatus("请先配置 Supabase，才能使用邮箱找回密码。", "error");
+    return;
+  }
+  if (!email) {
+    setAuthStatus("请先填写需要重置密码的邮箱。", "error");
+    elements.authEmail.focus();
+    return;
+  }
+
+  setAuthBusy(true);
+  setAuthStatus("正在发送重置邮件...");
+  try {
+    const { error: resetError } = await state.supabaseClient.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}${window.location.pathname}`,
+    });
+    if (resetError) throw resetError;
+    setAuthStatus("重置邮件已发送，请检查邮箱。", "success");
+  } catch (error) {
+    setAuthStatus(error.message, "error");
+  } finally {
+    setAuthBusy(false);
+  }
+}
+
+async function initializeSupabaseAuth() {
+  if (!window.supabase?.createClient) {
+    state.authProvider = "legacy";
+    return;
+  }
+
+  let supabaseUrl = SUPABASE_URL;
+  let supabasePublishableKey = SUPABASE_PUBLISHABLE_KEY;
+  if (!supabaseUrl || !supabasePublishableKey) {
+    try {
+      const apiBaseUrl = getApiBaseUrlCandidate();
+      const authConfig = await fetchJsonWithTimeout(
+        `${apiBaseUrl}/api/auth/config`,
+        {},
+        API_HEALTH_TIMEOUT_MS,
+      );
+      if (authConfig.supabase_configured) {
+        supabaseUrl = authConfig.supabase_url;
+        supabasePublishableKey = authConfig.supabase_publishable_key;
+      }
+    } catch (error) {
+      console.warn("Supabase auth configuration is unavailable.", error);
+    }
+  }
+
+  if (!supabaseUrl || !supabasePublishableKey) {
+    state.authProvider = "legacy";
+    return;
+  }
+
+  state.authProvider = "supabase";
+  state.supabaseClient = window.supabase.createClient(
+    supabaseUrl,
+    supabasePublishableKey,
+  );
+  const { data } = await state.supabaseClient.auth.getSession();
+  setAuthToken(data.session?.access_token || "");
+  state.supabaseClient.auth.onAuthStateChange((event, session) => {
+    window.setTimeout(async () => {
+      setAuthToken(session?.access_token || "");
+      if (event === "PASSWORD_RECOVERY") {
+        setAuthMode("recovery");
+        elements.authModal.hidden = false;
+        setAuthStatus("身份已验证，请设置新密码。", "success");
+        elements.authPassword.focus();
+      }
+      if (state.apiAvailable) await fetchCurrentUser();
+    }, 0);
+  });
+}
+
 async function handlePastedJobText(rawText) {
   const text = rawText.trim();
   if (!text) return;
@@ -1346,10 +1522,10 @@ async function runAnalysis(resumeText, jobText) {
 }
 
 function scoreLabel(score) {
-  if (score >= 80) return "关键词覆盖较强";
+  if (score >= 80) return "综合匹配度较强";
   if (score >= 60) return "匹配度中等";
   if (score >= 40) return "具备部分相关性";
-  return "显性要求覆盖较弱";
+  return "核心要求匹配较弱";
 }
 
 function createPill(keyword, type) {
@@ -1569,6 +1745,37 @@ function createAdviceCard(title, bodyItems) {
   return card;
 }
 
+function renderScoringProcess(finalScoring = null, keywordScore = 0) {
+  elements.scoringSteps.replaceChildren();
+  const steps = finalScoring?.steps || [
+    { step: 1, title: "关键词匹配", value: keywordScore },
+    { step: 2, title: "语义匹配", value: "待 AI" },
+    { step: 3, title: "经历匹配", value: "待 AI" },
+    { step: 4, title: "简历质量", value: "待 AI" },
+    { step: 5, title: "加分项", value: "待 AI" },
+    { step: 6, title: "加权基础分", value: "待 AI" },
+    { step: 7, title: "核心技能惩罚", value: "待 AI" },
+    { step: 8, title: "分数上限", value: "待 AI" },
+    { step: 9, title: "最终分数", value: "待 AI" },
+  ];
+  steps.forEach((step) => {
+    const item = document.createElement("div");
+    item.className = "scoring-step";
+    const number = document.createElement("span");
+    number.textContent = String(step.step);
+    const label = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = step.title;
+    const value = document.createElement("small");
+    value.textContent = typeof step.value === "number" && step.step <= 4
+      ? `${step.value}/100`
+      : String(step.value);
+    label.append(title, value);
+    item.append(number, label);
+    elements.scoringSteps.append(item);
+  });
+}
+
 function renderAiAdvicePlaceholder(message) {
   elements.aiAdviceContent.replaceChildren();
   elements.aiAdviceStatus.textContent = message;
@@ -1604,17 +1811,18 @@ function renderAiAdvice(response) {
   };
   elements.aiAdviceContent.replaceChildren();
   const providerLabel = response.provider ? `${response.provider} / ${response.model}` : response.model;
-  const hybridScore = response.hybrid_score?.score;
-  elements.aiAdviceStatus.textContent = hybridScore === undefined
+  const finalScore = response.final_scoring?.score;
+  elements.aiAdviceStatus.textContent = finalScore === undefined
     ? `AI 建议已生成 · ${providerLabel} · 规则分数保持 ${response.rule_score}/100`
-    : `AI 建议已生成 · ${providerLabel} · 稳定规则分 ${response.rule_score}/100 · 增强参考分 ${hybridScore}/100`;
+    : `AI 综合分析已生成 · ${providerLabel} · 最终分 ${finalScore}/100`;
 
   const summary = createAdviceCard("整体判断", [advice.summary]);
 
-  const hybrid = response.hybrid_score
-    ? createAdviceCard("增强参考分", [
-        `${response.hybrid_score.score}/100（仅作辅助，不替代稳定规则分）`,
-        `规则贡献 ${response.hybrid_score.rule_component} + 语义证据贡献 ${response.hybrid_score.semantic_component} + 证书/获奖加成 ${response.hybrid_score.credential_bonus}`,
+  const finalScoringCard = response.final_scoring
+    ? createAdviceCard("综合评分", [
+        `${response.final_scoring.score}/100`,
+        `关键词 ${response.final_scoring.keyword_match_score} · 语义 ${response.final_scoring.semantic_match_score} · 经历 ${response.final_scoring.experience_match_score} · 简历质量 ${response.final_scoring.resume_quality_score}`,
+        `加分 ${response.final_scoring.credential_bonus} · 核心技能惩罚 ${response.final_scoring.core_skill_penalty} · 分数上限 ${response.final_scoring.score_cap}`,
       ])
     : null;
 
@@ -1688,6 +1896,32 @@ function renderAiAdvice(response) {
     `历史招聘依据：${companyRoleContext.historical_hiring_evidence}`,
   ]);
 
+  const benchmark = advice.benchmark_comparison || {
+    benchmark_available: false,
+    source_notice: "未提供可靠录用样本，本次只依据 JD 分析。",
+    typical_education_background: [],
+    common_awards_or_credentials: [],
+    common_research_directions: [],
+    common_internship_experience: [],
+    candidate_comparison: "暂无可核验基准。",
+  };
+  const benchmarkCard = createAdviceCard("录用背景基准", [
+    benchmark.source_notice,
+    benchmark.benchmark_available
+      ? `院校与教育背景：${benchmark.typical_education_background.join("；") || "未统计"}`
+      : "院校与教育背景：无可靠聚合数据",
+    benchmark.benchmark_available
+      ? `奖项或证书：${benchmark.common_awards_or_credentials.join("；") || "未统计"}`
+      : "奖项或证书：无可靠聚合数据",
+    benchmark.benchmark_available
+      ? `论文或研究方向：${benchmark.common_research_directions.join("；") || "未统计"}`
+      : "论文或研究方向：无可靠聚合数据",
+    benchmark.benchmark_available
+      ? `常见实习经历：${benchmark.common_internship_experience.join("；") || "未统计"}`
+      : "常见实习经历：无可靠聚合数据",
+    benchmark.candidate_comparison,
+  ]);
+
   const applicationGuidance = createAdviceCard("网申表单与简历边界", [
     `建议保留在简历：${applicationFormGuidance.keep_in_resume.join("；") || "无额外建议"}`,
     `通常由网申表单填写：${applicationFormGuidance.usually_form_only.join("；") || "无"}`,
@@ -1712,7 +1946,7 @@ function renderAiAdvice(response) {
 
   elements.aiAdviceContent.append(
     summary,
-    ...(hybrid ? [hybrid] : []),
+    ...(finalScoringCard ? [finalScoringCard] : []),
     normalizedJob,
     requirements,
     rubric,
@@ -1720,12 +1954,22 @@ function renderAiAdvice(response) {
     quantifiedGaps,
     credentials,
     companyContext,
+    benchmarkCard,
     applicationGuidance,
     hrPerspective,
     actions,
     rewrites,
     ...(contract ? [contract] : []),
   );
+}
+
+function applyAiScoringToResult(result, response) {
+  if (!response?.final_scoring) return result;
+  result.base_rule_score = result.base_rule_score ?? result.score;
+  result.final_scoring = response.final_scoring;
+  result.score = response.final_scoring.score;
+  result.ai_advice = response;
+  return result;
 }
 
 function renderResultPage(result) {
@@ -1740,10 +1984,13 @@ function renderResult(result) {
 
   elements.scoreRing.style.setProperty("--score", result.score);
   elements.scoreValue.textContent = result.score;
-  elements.scoreLabel.textContent = scoreLabel(result.score);
-  elements.scoreDetail.textContent = `计算公式：${result.score_details.formula}`;
+  elements.scoreLabel.textContent = result.final_scoring ? scoreLabel(result.score) : "关键词初步匹配";
+  elements.scoreDetail.textContent = result.final_scoring
+    ? result.final_scoring.formula
+    : `关键词初步公式：${result.score_details.formula}`;
   elements.matchedWeight.textContent = result.score_details.matched_weight;
   elements.totalWeight.textContent = result.score_details.total_job_weight;
+  renderScoringProcess(result.final_scoring, result.base_rule_score ?? result.score);
   elements.copyJsonButton.disabled = false;
   updateAiAdviceAvailability();
 
@@ -1752,7 +1999,11 @@ function renderResult(result) {
   renderCategorySummary(result.category_summary);
   renderPriorityGaps(result.priority_gaps);
   renderSuggestions(result.suggestion_items);
-  renderAiAdvicePlaceholder(getAiAdvicePlaceholderMessage());
+  if (result.ai_advice) {
+    renderAiAdvice(result.ai_advice);
+  } else {
+    renderAiAdvicePlaceholder(getAiAdvicePlaceholderMessage());
+  }
 }
 
 function renderEmptyResult() {
@@ -1762,6 +2013,7 @@ function renderEmptyResult() {
   elements.scoreDetail.textContent = "输入简历和岗位 JD 后生成结果";
   elements.matchedWeight.textContent = "0";
   elements.totalWeight.textContent = "0";
+  renderScoringProcess();
   elements.copyJsonButton.disabled = true;
   elements.aiAdviceButton.disabled = true;
   renderKeywordList(elements.matchedList, [], "matched");
@@ -1804,6 +2056,9 @@ async function detectBackend() {
     state.apiBaseUrl = apiBaseUrl;
     state.apiAvailable = health.status === "ok";
     state.llmConfigured = Boolean(health.llm_configured);
+    state.llmProvider = health.llm_provider || "";
+    state.llmModel = health.llm_model || "";
+    state.authProvider = health.auth_provider || state.authProvider;
     updateRuntimeStatus();
     elements.runNote.textContent = getReadinessNote();
     await fetchCurrentUser();
@@ -1827,6 +2082,8 @@ async function detectBackend() {
     state.apiBaseUrl = "";
     state.apiAvailable = false;
     state.llmConfigured = false;
+    state.llmProvider = "";
+    state.llmModel = "";
     state.currentUser = null;
     updateRuntimeStatus();
     elements.runNote.textContent = getReadinessNote();
@@ -1989,6 +2246,12 @@ function bindEvents() {
   elements.authRegister.addEventListener("click", () => {
     submitAuth("register");
   });
+  elements.authGuest.addEventListener("click", () => {
+    closeAuthModal();
+    showPage("analyze");
+    elements.runNote.textContent = "游客模式不会保存分析历史";
+  });
+  elements.authReset.addEventListener("click", requestPasswordReset);
 
   elements.analyzeButton.addEventListener("click", async () => {
     const resumeText = elements.resumeInput.value.trim();
@@ -2019,8 +2282,17 @@ function bindEvents() {
       await new Promise((resolve) => window.setTimeout(resolve, 320));
       updateProgress(48, "规则分析", "正在识别岗位关键词和简历证据");
       const result = await runAnalysis(resumeText, jobText);
-      updateProgress(78, "生成结果", "正在整理分数、缺口和建议");
-      await new Promise((resolve) => window.setTimeout(resolve, 520));
+      if (state.apiAvailable && state.llmConfigured) {
+        updateProgress(62, "AI 综合分析", "正在计算语义、经历、简历质量和核心技能惩罚");
+        try {
+          const response = await generateAiAdvice(resumeText, jobText);
+          applyAiScoringToResult(result, response);
+        } catch (aiError) {
+          result.ai_error = aiError.message;
+          elements.runNote.textContent = "AI 分析超时或失败，已保留关键词初步结果";
+        }
+      }
+      updateProgress(90, "生成结果", "正在整理九步评分、缺口和建议");
       renderResultPage(result);
       await saveAnalysisHistory(resumeText, jobText, result);
     } catch (error) {
@@ -2116,9 +2388,14 @@ function bindEvents() {
 
     try {
       const response = await generateAiAdvice(resumeText, jobText);
-      state.lastResult.ai_advice = response;
+      applyAiScoringToResult(state.lastResult, response);
+      elements.scoreRing.style.setProperty("--score", state.lastResult.score);
+      elements.scoreValue.textContent = state.lastResult.score;
+      elements.scoreLabel.textContent = scoreLabel(state.lastResult.score);
+      elements.scoreDetail.textContent = response.final_scoring.formula;
+      renderScoringProcess(response.final_scoring, state.lastResult.base_rule_score);
       renderAiAdvice(response);
-      elements.runNote.textContent = "AI 建议已生成";
+      elements.runNote.textContent = "AI 综合分析已生成";
     } catch (error) {
       showAiAdviceMessage(`AI 建议生成失败，已保留现有结果：${error.message}`);
       elements.runNote.textContent = "AI 建议生成失败";
@@ -2145,5 +2422,9 @@ loadStoredAuthToken();
 bindEvents();
 showPage(getPageFromHash(), { push: false });
 updateAuthUi();
-detectBackend();
+Promise.allSettled([initializeSupabaseAuth(), detectBackend()]).then(async () => {
+  if (state.apiAvailable && state.authToken) {
+    await fetchCurrentUser();
+  }
+});
 loadKeywords();

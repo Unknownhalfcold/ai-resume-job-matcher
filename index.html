@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>AI Resume Job Matcher</title>
-    <link rel="stylesheet" href="assets/styles.css?v=10">
+    <link rel="stylesheet" href="assets/styles.css?v=11">
   </head>
   <script type="module">
   import { getCurrentUser, signOut } from "./auth.js";
@@ -62,12 +62,12 @@
           <div class="feature-row" aria-label="当前能力">
             <span>Word / PDF 简历上传</span>
             <span>JD 截图 OCR</span>
-            <span>基础规则 + LLM Gap</span>
+            <span>跨学科规则 + LLM</span>
             <span>站点默认 AI</span>
           </div>
 
           <div class="version-strip" aria-label="版本状态">
-            <span>v0.7</span>
+            <span>v0.8</span>
             <span id="runtime-status">Connecting API</span>
           </div>
         </div>
@@ -158,7 +158,7 @@
             <div class="command-title">
               <p class="eyebrow">Step 3</p>
               <h2 id="result-title">分析结果</h2>
-              <p>基础规则分先给快速判断，LLM 负责语义权重和 gap evidence。</p>
+              <p>关键词、语义、经历与简历质量共同形成可解释的综合分数。</p>
             </div>
             <div class="tool-group action-tools">
               <button class="button secondary" id="analyze-another-job" type="button">匹配其他 JD</button>
@@ -184,6 +184,11 @@
                   </div>
                 </div>
               </div>
+
+              <section class="result-block scoring-process" aria-labelledby="scoring-process-title">
+                <h3 id="scoring-process-title">评分过程</h3>
+                <div class="scoring-steps" id="scoring-steps"></div>
+              </section>
 
               <section class="result-block capability-breakdown" aria-labelledby="capability-title">
                 <h3 id="capability-title">能力维度</h3>
@@ -220,9 +225,9 @@
             <div class="ai-advice-heading">
               <div>
                 <h3 id="ai-advice-title">AI 建议层</h3>
-                <p>需要更具体的修改方向时再生成，避免结果页一开始过载。</p>
+                <p>默认随分析生成；若云端超时，可在这里重新生成。</p>
               </div>
-              <button class="button secondary" id="ai-advice-button" type="button" disabled>生成 AI 建议</button>
+              <button class="button secondary" id="ai-advice-button" type="button" disabled>重新生成 AI 分析</button>
             </div>
             <p class="security-note">AI 请求只发送简历与岗位 JD 到本站 Render 后端；API Key 与模型地址仅保存在服务器环境变量中。</p>
             <p class="ai-advice-status" id="ai-advice-status">完成基础分析后可生成</p>
@@ -329,24 +334,33 @@
           </div>
           <button class="button ghost" id="auth-close" type="button">关闭</button>
         </div>
-        <p class="auth-copy">账户系统用于保存分析摘要。登录后会保存匹配分数、优势、缺口和建议；默认不保存完整简历或岗位 JD，游客模式不会保存历史。</p>
-        <label class="field">
+        <p class="auth-copy" id="auth-copy">使用邮箱保存分析历史。注册后需要完成邮箱验证；也可以直接以游客模式使用分析工具。</p>
+        <div class="auth-meta" aria-label="账户能力">
+          <span id="auth-email-feature">邮箱验证</span>
+          <span>分析历史</span>
+          <span>游客可用</span>
+        </div>
+        <label class="field" id="auth-email-field">
           <span>Email</span>
           <input id="auth-email" type="email" autocomplete="email" required>
         </label>
         <label class="field">
-          <span>Password</span>
+          <span id="auth-password-label">Password</span>
           <input id="auth-password" type="password" autocomplete="current-password" minlength="8" required>
         </label>
         <p class="auth-status" id="auth-status">密码至少 8 位。</p>
+        <button class="auth-link" id="auth-reset" type="button">忘记密码？发送重置邮件</button>
         <div class="dialog-actions split-actions">
           <button class="button secondary" id="auth-register" type="button">注册</button>
           <button class="button primary" id="auth-login" type="submit">登录</button>
         </div>
+        <button class="button ghost auth-guest" id="auth-guest" type="button">继续以游客模式使用</button>
       </form>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script src="assets/app.js?v=16"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="assets/config.js?v=2"></script>
+    <script src="assets/app.js?v=18"></script>
   </body>
 </html>

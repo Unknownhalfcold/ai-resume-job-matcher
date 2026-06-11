@@ -10,13 +10,16 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 
 DEFAULT_LLM_MODEL = "gpt-5.5"
-DEFAULT_MAX_OUTPUT_TOKENS = 5200
+DEFAULT_MAX_OUTPUT_TOKENS = 2800
 MAX_JOB_OCR_CANDIDATE_CHARS = 16000
 
 APIStyle = Literal["responses", "chat_completions"]
 
 LLM_ANALYSIS_CONTRACT: dict[str, Any] = {
-    "final_score_policy": "rule_score is the only final match score; LLM output must not replace it.",
+    "final_score_policy": (
+        "The LLM supplies bounded component scores. The backend applies the fixed formula, penalties, "
+        "and score caps to produce the final score."
+    ),
     "importance_scale": {
         "must_have": "Hard requirement. Weight usually 4-5.",
         "important": "Important job requirement. Weight usually 3-4.",
@@ -31,9 +34,9 @@ LLM_ANALYSIS_CONTRACT: dict[str, Any] = {
         "such as cross-functional delivery, stakeholder management, or project ownership, classify them as "
         "nice_to_have with weight 1-2, do not mark them as high-impact gaps, and do not let them affect rule_score."
     ),
-    "hybrid_score_policy": (
-        "The backend may calculate an advisory hybrid score using 65% rule score, 30% weighted semantic evidence, "
-        "and up to 5 points of verified job-relevant credential bonus. The LLM must not output its own final score."
+    "final_score_formula": (
+        "The backend calculates 25% keyword match, 30% semantic match, 30% experience match, "
+        "15% resume quality, up to 5 bonus points, core-skill penalties, and deterministic score caps."
     ),
     "company_context_policy": (
         "Company name, company scale, and historical hiring context may only be used when explicitly present in "
@@ -96,6 +99,17 @@ class ScoringRubricItem(BaseModel):
     dimension: str
     weight: int = Field(ge=1, le=5)
     what_good_looks_like: str
+
+
+class ScoreAssessment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    semantic_match_score: int = Field(ge=0, le=100)
+    experience_match_score: int = Field(ge=0, le=100)
+    resume_quality_score: int = Field(ge=0, le=100)
+    semantic_reason: str
+    experience_reason: str
+    quality_reason: str
 
 
 class EvidenceReviewItem(BaseModel):
@@ -180,11 +194,25 @@ class HRPerspective(BaseModel):
     likely_interview_questions: list[str] = Field(max_length=6)
 
 
+class BenchmarkComparison(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    benchmark_available: bool
+    basis: Literal["verified_aggregate", "jd_only"]
+    source_notice: str
+    typical_education_background: list[str] = Field(max_length=5)
+    common_awards_or_credentials: list[str] = Field(max_length=5)
+    common_research_directions: list[str] = Field(max_length=5)
+    common_internship_experience: list[str] = Field(max_length=5)
+    candidate_comparison: str
+
+
 class AdvicePayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     summary: str
     normalized_job: NormalizedJobPayload
+    score_assessment: ScoreAssessment
     scoring_rubric: list[ScoringRubricItem] = Field(min_length=3, max_length=6)
     evidence_review: list[EvidenceReviewItem] = Field(min_length=3, max_length=6)
     quantified_gaps: list[QuantifiedGapItem] = Field(min_length=2, max_length=6)
@@ -194,6 +222,7 @@ class AdvicePayload(BaseModel):
     company_role_context: CompanyRoleContext
     application_form_guidance: ApplicationFormGuidance
     hr_perspective: HRPerspective
+    benchmark_comparison: BenchmarkComparison
 
 
 class JobNormalizationPayload(BaseModel):
@@ -249,6 +278,7 @@ ADVICE_SCHEMA: dict[str, Any] = {
     "required": [
         "summary",
         "normalized_job",
+        "score_assessment",
         "scoring_rubric",
         "evidence_review",
         "quantified_gaps",
@@ -258,6 +288,7 @@ ADVICE_SCHEMA: dict[str, Any] = {
         "company_role_context",
         "application_form_guidance",
         "hr_perspective",
+        "benchmark_comparison",
     ],
     "properties": {
         "summary": {
@@ -323,6 +354,26 @@ ADVICE_SCHEMA: dict[str, Any] = {
                         },
                     },
                 },
+            },
+        },
+        "score_assessment": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "semantic_match_score",
+                "experience_match_score",
+                "resume_quality_score",
+                "semantic_reason",
+                "experience_reason",
+                "quality_reason",
+            ],
+            "properties": {
+                "semantic_match_score": {"type": "integer", "minimum": 0, "maximum": 100},
+                "experience_match_score": {"type": "integer", "minimum": 0, "maximum": 100},
+                "resume_quality_score": {"type": "integer", "minimum": 0, "maximum": 100},
+                "semantic_reason": {"type": "string"},
+                "experience_reason": {"type": "string"},
+                "quality_reason": {"type": "string"},
             },
         },
         "scoring_rubric": {
@@ -566,6 +617,46 @@ ADVICE_SCHEMA: dict[str, Any] = {
                 },
             },
         },
+        "benchmark_comparison": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "benchmark_available",
+                "basis",
+                "source_notice",
+                "typical_education_background",
+                "common_awards_or_credentials",
+                "common_research_directions",
+                "common_internship_experience",
+                "candidate_comparison",
+            ],
+            "properties": {
+                "benchmark_available": {"type": "boolean"},
+                "basis": {"type": "string", "enum": ["verified_aggregate", "jd_only"]},
+                "source_notice": {"type": "string"},
+                "typical_education_background": {
+                    "type": "array",
+                    "maxItems": 5,
+                    "items": {"type": "string"},
+                },
+                "common_awards_or_credentials": {
+                    "type": "array",
+                    "maxItems": 5,
+                    "items": {"type": "string"},
+                },
+                "common_research_directions": {
+                    "type": "array",
+                    "maxItems": 5,
+                    "items": {"type": "string"},
+                },
+                "common_internship_experience": {
+                    "type": "array",
+                    "maxItems": 5,
+                    "items": {"type": "string"},
+                },
+                "candidate_comparison": {"type": "string"},
+            },
+        },
     },
 }
 
@@ -627,7 +718,7 @@ SYSTEM_INSTRUCTIONS = """
 3. 如果 JD 中包含技术性问题或问答题，将它们单独放入 technical_questions，并说明考察能力和期望简历证据。
 4. 对简历证据进行量化：evidence_score 为 0-100，confidence 为 0-100。
 5. 对 gap evidence 进行量化：gap_score 为 0-100，分数越高表示缺口越严重。
-6. 不要修改、重算或质疑 rule_score，最终匹配分数由规则层负责。
+6. 输出 semantic_match_score、experience_match_score、resume_quality_score 三个 0-100 分项；不要直接输出最终总分。
 7. 不要编造用户没有提供的经历、公司、数字、证书或结果。
 8. 如果简历缺少证据，请明确指出“需要补充”，不要替用户虚构。
 9. 对“沟通能力、团队协作、责任心、抗压能力、学习能力、执行力”等软性要求要降权处理。
@@ -636,11 +727,18 @@ SYSTEM_INSTRUCTIONS = """
 12. 不得编造公司的历史招聘案例。如果用户材料中没有先前招聘案例，historical_hiring_evidence 必须明确写“用户材料未提供，无法核验”。
 13. 区分“应写在简历里的证明材料”和“通常由招聘网站表单单独收集的信息”。
 14. 输出必须是符合 schema 的中文 JSON。
+15. 不限定 AI、互联网或产品岗位。根据当前 JD 自主识别工程、理学、医学、商科、法律、教育、设计、人文社科等专业要求。
+16. 如果提供了有来源的匿名录用背景基准，只能概括其教育层次、奖项证书、研究方向和实习类型；没有基准时必须使用 jd_only，四类背景列表保持为空。
+17. 建议要具体、直接、尖锐但不羞辱用户。指出可能导致 HR 淘汰的真实问题，并给出可执行的修正动作。
+18. 不要因用户专业名称与岗位名称不同就直接判定不匹配；应寻找课程、项目、研究、实习和成果中的可迁移证据。
 
 评分稳定性原则：
-- 规则匹配层负责稳定分数。
-- LLM 层负责语义理解、JD 规范化、证据强弱、gap evidence 和修改建议。
-- 不允许输出新的最终匹配分数，不允许用 LLM 分数覆盖 rule_score。
+- 关键词层负责可复现的显性覆盖分。
+- LLM 只输出语义、经历和简历质量三个受限分项，并解释依据。
+- 后端统一执行加权公式、加分、核心技能惩罚和分数上限，LLM 不得自行给最终总分。
+- 语义分看“能力是否等价”，经历分看“经历深度、职责相似度和成果证据”，质量分看“结构、清晰度、量化程度和可信表达”。
+- 经历分重点检查任务相似度、复杂度、责任范围、成果证据和岗位阶段；未提供时长或数字时不得猜测。
+- 学历和院校层次只有在 JD 明确要求，或后端提供了有来源的匿名聚合基准时才能影响分析；不得把学校标签当作能力本身。
 
 重要程度口径：
 - must_have：JD 中明确要求、反复出现或直接影响岗位胜任的能力，权重通常 4-5。
@@ -659,13 +757,16 @@ SYSTEM_INSTRUCTIONS = """
 - 相关性优先于知名度。与岗位无关的证书或奖项 score_bonus 为 0。
 - 只有名称、颁发机构、级别或获奖结果足够明确时才允许 credibility 为 high / medium / low。
 - 无法从用户文本核验含金量时 credibility 必须为 unverified，score_bonus 必须为 0。
-- 全部证书和奖项合计最多只能为增强参考分贡献 5 分。
+- 全部证书和奖项合计最多只能为最终综合分贡献 5 分。
 
 公司与具体岗位规则：
 - company_name、role_title 和 company_scale 只能来自用户提供的 JD 或简历；不确定时输出 unknown 或空字符串。
 - 不能假装访问过该公司的官网、招聘网站、往年面经或内部招聘数据。
 - 如果用户材料明确包含公司规模、岗位名称或历史招聘案例，可以用于分析；否则只按当前 JD 判断。
 - HR 视角是模拟初筛，不代表该公司的真实录用结论。
+- 如果没有公司名称，只按 JD 的岗位要求分析，不推测雇主偏好。
+- 只有后端明确提供 benchmark_context 时，才能谈“已录用背景”；不得用常识或模型记忆伪造员工画像。
+- benchmark_context 必须是匿名、聚合且带来源说明的数据，不输出个人姓名、联系方式或可识别个人的信息。
 
 招聘表单与简历边界：
 - 简历应保留能证明能力的教育、项目、实习、技能、证书、奖项和量化成果。
@@ -775,7 +876,7 @@ def get_llm_metadata() -> dict[str, Any]:
         "llm_provider": config.provider,
         "llm_model": config.model,
         "llm_api_style": config.api_style,
-        "llm_timeout_seconds": get_float_config_value("LLM_REQUEST_TIMEOUT_SECONDS", 60),
+        "llm_timeout_seconds": get_float_config_value("LLM_REQUEST_TIMEOUT_SECONDS", 28),
     }
 
 
@@ -848,6 +949,7 @@ def build_job_ocr_candidate(raw_text: str) -> str:
 
 
 def build_advice_input(resume_text: str, job_text: str, analysis: dict[str, Any]) -> str:
+    benchmark_context = analysis.get("benchmark_context")
     compact_analysis = {
         "rule_score": analysis.get("score"),
         "score_details": analysis.get("score_details"),
@@ -860,11 +962,13 @@ def build_advice_input(resume_text: str, job_text: str, analysis: dict[str, Any]
     return "\n\n".join(
         [
             "请基于以下信息生成结构化 LLM 分析结果。",
-            "固定规则：rule_score 是唯一最终匹配分数，不要重算、覆盖或新增最终分数。",
+            "不要输出最终总分。请分别给出语义匹配分、经历匹配分和简历质量分，最终公式由后端执行。",
             "请对 JD 要求进行规范化，并给出重要程度 must_have / important / nice_to_have 与 1-5 权重。",
             "请对简历证据给出 0-100 evidence_score，对缺口给出 0-100 gap_score。",
+            "岗位可以来自任何学科和行业，不要套用 AI 产品岗位模板。",
             "请识别简历中明确出现的证书和奖项；无法核验含金量时必须标记 unverified 且不得加分。",
-            "请模拟当前 JD 对应公司的 HR 初筛视角，但不得编造公司规模、历史招聘案例或外部事实。",
+            "若 JD 提供公司名称，请模拟该公司该岗位的专业 HR 初筛视角；未提供公司名称时只依据 JD。",
+            "只有 benchmark_context 非空时才可展示匿名录用背景；否则 benchmark_comparison 必须使用 jd_only 且背景列表为空。",
             "请区分简历应保留的能力证据与通常由招聘网站表单单独收集的到岗安排等信息。",
             "【固定分析口径】",
             json.dumps(LLM_ANALYSIS_CONTRACT, ensure_ascii=False, indent=2),
@@ -874,6 +978,10 @@ def build_advice_input(resume_text: str, job_text: str, analysis: dict[str, Any]
             resume_text,
             "【规则匹配结果】",
             json.dumps(compact_analysis, ensure_ascii=False, indent=2),
+            "【有来源的匿名录用背景基准】",
+            json.dumps(benchmark_context, ensure_ascii=False, indent=2)
+            if benchmark_context
+            else "未提供可靠录用样本，只能依据当前 JD 分析。",
         ]
     )
 
@@ -929,7 +1037,7 @@ def create_openai_client(config: LLMConfig) -> Any:
 
     client_options = {
         "api_key": config.api_key,
-        "timeout": get_float_config_value("LLM_REQUEST_TIMEOUT_SECONDS", 60),
+        "timeout": get_float_config_value("LLM_REQUEST_TIMEOUT_SECONDS", 28),
         "max_retries": 0,
     }
     if config.base_url:
@@ -1096,32 +1204,21 @@ def validate_job_normalization(raw_payload: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
-def calculate_hybrid_score(rule_score: int | float | None, advice: Mapping[str, Any]) -> dict[str, Any]:
-    stable_rule_score = max(0, min(100, int(round(float(rule_score or 0)))))
-    importance_weights = {
-        "must_have": 5,
-        "important": 3,
-        "nice_to_have": 1,
-    }
+def clamp_score(value: Any) -> int:
+    try:
+        return max(0, min(100, int(round(float(value)))))
+    except (TypeError, ValueError):
+        return 0
 
-    evidence_items = advice.get("evidence_review")
-    weighted_evidence = 0.0
-    total_evidence_weight = 0
-    if isinstance(evidence_items, list):
-        for item in evidence_items:
-            if not isinstance(item, Mapping):
-                continue
-            importance = str(item.get("importance") or "nice_to_have")
-            weight = importance_weights.get(importance, 1)
-            evidence_score = max(0, min(100, int(item.get("evidence_score") or 0)))
-            weighted_evidence += evidence_score * weight
-            total_evidence_weight += weight
 
-    semantic_evidence_score = (
-        round(weighted_evidence / total_evidence_weight)
-        if total_evidence_weight
-        else stable_rule_score
-    )
+def calculate_final_score(keyword_score: int | float | None, advice: Mapping[str, Any]) -> dict[str, Any]:
+    keyword_match_score = clamp_score(keyword_score)
+    assessment = advice.get("score_assessment")
+    if not isinstance(assessment, Mapping):
+        assessment = {}
+    semantic_match_score = clamp_score(assessment.get("semantic_match_score"))
+    experience_match_score = clamp_score(assessment.get("experience_match_score"))
+    resume_quality_score = clamp_score(assessment.get("resume_quality_score"))
 
     credential_bonus = 0
     credential_items = advice.get("credential_review")
@@ -1136,21 +1233,80 @@ def calculate_hybrid_score(rule_score: int | float | None, advice: Mapping[str, 
             credential_bonus += max(0, min(5, int(item.get("score_bonus") or 0)))
     credential_bonus = min(5, credential_bonus)
 
-    hybrid_score_value = (
-        stable_rule_score * 0.65
-        + semantic_evidence_score * 0.30
-        + credential_bonus
+    weighted_base = (
+        keyword_match_score * 0.25
+        + semantic_match_score * 0.30
+        + experience_match_score * 0.30
+        + resume_quality_score * 0.15
     )
-    hybrid_score = int(hybrid_score_value + 0.5)
+    evidence_by_title: dict[str, Mapping[str, Any]] = {}
+    for item in advice.get("evidence_review") or []:
+        if isinstance(item, Mapping):
+            evidence_by_title[str(item.get("title") or "").strip().lower()] = item
+
+    missing_core_requirements: list[str] = []
+    core_penalty = 0
+    normalized_job = advice.get("normalized_job")
+    requirements = normalized_job.get("requirements") if isinstance(normalized_job, Mapping) else []
+    for requirement in requirements or []:
+        if not isinstance(requirement, Mapping) or requirement.get("importance") != "must_have":
+            continue
+        title = str(requirement.get("title") or "").strip()
+        evidence = evidence_by_title.get(title.lower(), {})
+        evidence_score = clamp_score(evidence.get("evidence_score"))
+        level = str(evidence.get("level") or "missing")
+        if level == "missing" or evidence_score < 40:
+            missing_core_requirements.append(title or "未命名核心要求")
+            requirement_weight = max(1, min(5, int(requirement.get("weight") or 5)))
+            core_penalty += requirement_weight * 2
+    core_penalty = min(25, core_penalty)
+
+    score_cap = 100
+    cap_reasons: list[str] = []
+    if len(missing_core_requirements) >= 2:
+        score_cap = min(score_cap, 59)
+        cap_reasons.append("缺少两项及以上核心要求")
+    elif len(missing_core_requirements) == 1:
+        score_cap = min(score_cap, 69)
+        cap_reasons.append("缺少一项核心要求")
+    if semantic_match_score < 30:
+        score_cap = min(score_cap, 49)
+        cap_reasons.append("语义匹配低于 30")
+    if experience_match_score < 35:
+        score_cap = min(score_cap, 64)
+        cap_reasons.append("经历匹配低于 35")
+
+    before_cap = max(0, min(100, int(round(weighted_base + credential_bonus - core_penalty))))
+    final_score = min(before_cap, score_cap)
 
     return {
-        "score": max(0, min(100, hybrid_score)),
-        "rule_component": round(stable_rule_score * 0.65, 1),
-        "semantic_component": round(semantic_evidence_score * 0.30, 1),
+        "score": final_score,
+        "keyword_match_score": keyword_match_score,
+        "semantic_match_score": semantic_match_score,
+        "experience_match_score": experience_match_score,
+        "resume_quality_score": resume_quality_score,
+        "weighted_base": round(weighted_base, 1),
         "credential_bonus": credential_bonus,
-        "semantic_evidence_score": semantic_evidence_score,
-        "formula": "rule_score * 65% + semantic_evidence_score * 30% + credential_bonus (max 5)",
-        "is_advisory": True,
+        "core_skill_penalty": core_penalty,
+        "missing_core_requirements": missing_core_requirements,
+        "score_before_cap": before_cap,
+        "score_cap": score_cap,
+        "cap_reasons": cap_reasons,
+        "formula": (
+            "关键词 25% + 语义 30% + 经历 30% + 简历质量 15% "
+            "+ 加分项 - 核心技能惩罚，再应用分数上限"
+        ),
+        "steps": [
+            {"step": 1, "title": "关键词匹配", "value": keyword_match_score},
+            {"step": 2, "title": "语义匹配", "value": semantic_match_score},
+            {"step": 3, "title": "经历匹配", "value": experience_match_score},
+            {"step": 4, "title": "简历质量", "value": resume_quality_score},
+            {"step": 5, "title": "加分项", "value": credential_bonus},
+            {"step": 6, "title": "加权基础分", "value": round(weighted_base, 1)},
+            {"step": 7, "title": "核心技能惩罚", "value": -core_penalty},
+            {"step": 8, "title": "分数上限", "value": score_cap},
+            {"step": 9, "title": "最终分数", "value": final_score},
+        ],
     }
 
 
@@ -1214,6 +1370,8 @@ def generate_with_chat_completions(
     try:
         return validate_advice(parse_json_object(content))
     except LLMResponseError as first_error:
+        if os.getenv("LLM_RETRY_ON_SCHEMA_ERROR", "false").lower() not in {"1", "true", "yes"}:
+            raise first_error
         retry_response = client.chat.completions.create(
             model=config.model,
             messages=[
@@ -1224,7 +1382,7 @@ def generate_with_chat_completions(
                         [
                             "上一次输出没有通过 JSON schema 校验，请重新生成完整 JSON。",
                             f"校验错误：{first_error}",
-                            "必须包含所有 required 字段，尤其是 normalized_job、scoring_rubric、evidence_review、quantified_gaps、top_actions、rewrite_examples、credential_review、company_role_context、application_form_guidance、hr_perspective。",
+                            "必须包含所有 required 字段，尤其是 normalized_job、score_assessment、scoring_rubric、evidence_review、quantified_gaps、top_actions、credential_review、company_role_context、benchmark_comparison、hr_perspective。",
                             "每个字符串尽量控制在 80 个中文字符以内，避免输出被截断。",
                             build_chat_prompt(resume_text, job_text, analysis),
                         ]
@@ -1269,7 +1427,7 @@ def normalize_job_with_responses_api(
                 "strict": True,
             }
         },
-        max_output_tokens=min(config.max_output_tokens, 3200),
+        max_output_tokens=min(config.max_output_tokens, 1800),
     )
 
     return validate_job_normalization(json.loads(response.output_text))
@@ -1288,7 +1446,7 @@ def normalize_job_with_chat_completions(
         ],
         response_format={"type": "json_object"},
         temperature=0,
-        max_tokens=min(config.max_output_tokens, 3200),
+        max_tokens=min(config.max_output_tokens, 1800),
     )
 
     content = response.choices[0].message.content
@@ -1310,9 +1468,22 @@ def generate_advice(
     client = create_openai_client(config)
 
     if config.api_style == "chat_completions":
-        return generate_with_chat_completions(client, config, resume_text, job_text, analysis)
+        advice = generate_with_chat_completions(client, config, resume_text, job_text, analysis)
+    else:
+        advice = generate_with_responses_api(client, config, resume_text, job_text, analysis)
 
-    return generate_with_responses_api(client, config, resume_text, job_text, analysis)
+    if not analysis.get("benchmark_context"):
+        advice["benchmark_comparison"] = {
+            "benchmark_available": False,
+            "basis": "jd_only",
+            "source_notice": "未提供可核验、匿名化的录用背景数据，本次仅依据当前 JD 分析。",
+            "typical_education_background": [],
+            "common_awards_or_credentials": [],
+            "common_research_directions": [],
+            "common_internship_experience": [],
+            "candidate_comparison": "没有可靠录用样本，不能把模型常识当作该公司的真实录用画像。",
+        }
+    return advice
 
 
 def normalize_job_text(

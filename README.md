@@ -1,6 +1,6 @@
 # AI Resume Job Matcher
 
-AI Resume Job Matcher 是一个面向求职者的简历与岗位匹配分析工具。用户可以上传简历和一份或多份岗位 JD，获得可解释的稳定规则分、LLM 增强参考分、能力缺口证据和简历优化建议。
+AI Resume Job Matcher 是一个面向不同专业求职者的简历与岗位匹配分析工具。用户可以上传简历和一份或多份岗位 JD，获得可解释的九步综合评分、能力缺口证据和简历优化建议。
 
 <img width="2880" height="1791" alt="www jobmatcher win_" src="https://github.com/user-attachments/assets/85120c36-f880-4e16-9b1c-7c0ba0a0b57f" />
 
@@ -22,8 +22,8 @@ Render 免费实例休眠后，第一次请求可能需要等待服务唤醒。
 1. 进入 Analyzer，粘贴简历文本或上传 DOCX/PDF 简历。
 2. 粘贴岗位描述，或一次上传最多 6 个 JD 截图、DOCX/PDF 文件。
 3. 系统合并并清洗 JD，识别岗位职责、任职要求、加分项和技术问题。
-4. 基础规则层生成稳定匹配分、能力维度和 Gap Evidence。
-5. 用户可以继续调用站点默认 LLM 生成增强建议；浏览器不会接触或保存 API Key。
+4. 基础规则层计算跨专业关键词覆盖。
+5. 云端 LLM 判断语义、经历和简历质量，后端执行固定公式、惩罚和分数上限。
 6. 分析完成后可以选择“匹配其他 JD”，只清空当前岗位内容并保留简历。
 
 登录用户的分析结果会保存到自己的 History 页面；游客可以直接分析，但不会保存历史。
@@ -41,7 +41,9 @@ Render 免费实例休眠后，第一次请求可能需要等待服务唤醒。
 
 ### 分析与建议
 
-- 输出稳定规则分、关键词覆盖、能力维度和高优先级缺口。
+- 基础词库覆盖软件、数据、金融、工程、自然科学、医学、法律、教育、人文、设计和运营等岗位族。
+- LLM 从当前 JD 动态识别词库之外的专业要求，不限定 AI 岗位。
+- 输出关键词、语义、经历、简历质量、加分项、惩罚和分数上限。
 - 使用固定 JSON schema 约束 LLM 输出，减少分析格式和口径漂移。
 - 判断证书与奖项的岗位相关性和可信度；无法核验时不加分。
 - 从用户提供的材料中识别公司、岗位和规模，并模拟目标岗位 HR 初筛视角。
@@ -60,22 +62,22 @@ Render 免费实例休眠后，第一次请求可能需要等待服务唤醒。
 
 当前线上版本采用 GitHub Pages 前端、Render FastAPI 后端、Postgres 数据库和 DeepSeek 默认 LLM。未设置 `DATABASE_URL` 的本地开发环境会自动使用 SQLite。
 
-LLM 只负责结构化语义分析和优化建议，不直接覆盖稳定规则分。用户材料未提供的公司信息、历史招聘案例、证书等级或经历不得由模型补写。
+LLM 负责语义匹配、经历匹配、简历质量、证书奖项和 HR 视角分析；后端负责固定加权公式、核心技能惩罚和分数上限。用户材料未提供的公司信息、历史招聘案例、证书等级或经历不得由模型补写。
 
 已完成：
 
 - 三段式响应式 Web 界面与分析进度。
 - 本地 Python 分析脚本与 FastAPI API。
 - 简历文档解析、多 JD 输入、截图 OCR 和 LLM JD 清洗。
-- 稳定规则分、增强参考分和结构化 AI 建议。
+- 跨学科关键词分、LLM 分项评分、九步最终分和结构化 AI 建议。
 - 站点默认 LLM 的服务端安全调用链。
 - 基础账户、Postgres 数据库、用户级历史记录和删除功能。
-- LLM 输入长度、60 秒超时、10 并发上限和基于 IP 的调用限额。
+- LLM 输入长度、28 秒超时、10 并发上限和基于 IP 的调用限额。
 - GitHub Pages 与 Render 云端部署。
 
 暂未包含：
 
-- 邮箱验证、找回密码和第三方登录。
+- Supabase 第三方 OAuth 登录。
 - 扫描版 PDF 的整页 OCR。
 - Token 精确计费、账号级额度和管理后台。
 - 经过人工标注数据校准的评分模型。
@@ -84,10 +86,10 @@ LLM 只负责结构化语义分析和优化建议，不直接覆盖稳定规则�
 
 ## 账户、历史和隐私
 
-当前项目已经接入基础数据库。数据库包含四类核心数据：
+当前项目已经接入基础数据库，并支持把邮箱认证切换到 Supabase Auth。数据库包含四类核心数据：
 
-- `users`：保存用户邮箱、密码哈希和登录时间
-- `auth_sessions`：保存登录 session token 的哈希，用于识别当前用户
+- `users`：保存业务用户映射、邮箱和登录时间；启用 Supabase 后不在本项目保存用户密码
+- `auth_sessions`：仅兼容旧账户系统；启用 Supabase 后由 Supabase 管理登录 session
 - `analysis_history`：保存登录用户的分析历史
 - `llm_usage_events`：保存哈希后的 IP、接口名、输入长度、状态和耗时，用于限流和运行监控
 
@@ -107,110 +109,62 @@ user_id, match_score, strengths, weaknesses, suggestions, created_at
 - 你可以在 History 页面删除自己的分析记录
 - 请不要上传身份证、护照、银行卡、验证码等敏感信息
 
-## 快速运行
+## 快速开始
 
-启动网页：
+项目已经部署到云端，普通用户不需要安装 Python、启动本地后端或配置模型：
 
-```powershell
-py -m http.server 8000
-```
+1. 打开 [https://www.jobmatcher.win](https://www.jobmatcher.win)。
+2. 直接以游客模式分析，或使用邮箱注册以保存历史。
+3. 上传 DOCX/PDF 简历，粘贴或上传岗位 JD。
+4. 等待云端完成九步综合分析。
 
-打开：
-
-```text
-http://localhost:8000
-```
-
-运行命令行示例分析：
-
-
-```powershell
-py -X utf8 scripts/analyze_match.py
-```
-
-启动后端 API：
-
-```powershell
-py -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m uvicorn api.server:app --reload --port 8001
-```
-
-本地前端会自动检测 `http://localhost:8001`。后端在线时使用 API 模式；后端未运行时使用浏览器本地分析。
-
-启用服务端 LLM 建议层：
-
-```powershell
-$env:LLM_PROVIDER="deepseek"
-$env:LLM_API_STYLE="chat_completions"
-$env:LLM_BASE_URL="https://api.deepseek.com"
-$env:LLM_API_KEY="你的第三方 API Key"
-$env:LLM_MODEL="deepseek-v4-flash"
-$env:LLM_REQUEST_TIMEOUT_SECONDS="60"
-$env:MAX_LLM_CONCURRENCY="10"
-$env:RATE_LIMIT_SALT="请替换为随机长字符串"
-.\.venv\Scripts\python.exe -m uvicorn api.server:app --reload --port 8001
-```
-
-生产环境中，上述值只应配置在 Render 的 **Environment Variables**。前端不提供 API Key 或 Base URL 输入框，也不会直接请求 DeepSeek。
-
-输出 JSON：
-
-```powershell
-py -X utf8 scripts/analyze_match.py --format json
-```
-
-查看评分明细：
-
-```powershell
-py -X utf8 scripts/analyze_match.py --debug
-```
-
-分析自定义文件：
-
-```powershell
-py -X utf8 scripts/analyze_match.py --resume local_inputs/my_resume.txt --job local_inputs/my_job.txt
-```
-
-`local_inputs/` 已加入 `.gitignore`，用于存放个人简历和岗位文本，避免误提交隐私内容。
+开发者部署和环境变量说明见 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。真实 LLM Key 只配置在 Render Environment Variables。
 
 ## 评分逻辑
 
-系统同时展示两个分数。
-
-### 稳定规则分
-
-稳定规则分采用关键词权重匹配：
+系统使用固定九步流程：
 
 ```text
-匹配度 = 已匹配关键词权重 / 岗位关键词总权重 * 100
+关键词匹配 → 语义匹配 → 经历匹配 → 简历质量 → 加分项
+→ 加权基础分 → 核心技能惩罚 → 分数上限 → 最终分数
 ```
-
-示例：
 
 ```text
-已匹配关键词权重 = 23
-岗位关键词总权重 = 53
-匹配度 = 23 / 53 * 100 = 43
+加权基础分 =
+关键词 25% + 语义 30% + 经历 30% + 简历质量 15%
 ```
 
-相同输入会得到稳定、可复现的结果。
-
-### 增强参考分
-
-用户生成 AI 建议后，系统会计算一个包含语义证据的辅助分数：
-
-```text
-增强参考分 = 稳定规则分 × 65% + LLM 语义证据分 × 30% + 证书/获奖加成
-```
-
-- 语义证据根据岗位要求的重要程度加权。
-- 证书与获奖总加成最多 5 分。
-- 无法核验或与岗位无关的证书、奖项不会加分。
-- 公司规模和没有可靠来源的历史招聘案例不直接进入分数。
-- 增强参考分不是录用概率，也不会替代稳定规则分。
+LLM 只给出受限分项和证据，最终总分、惩罚和上限由后端函数统一计算。
 
 详细说明见 [`docs/SCORING.md`](docs/SCORING.md)。
+
+## Supabase 邮箱登录配置
+
+Supabase 项目创建完成后，还需要在 Render 配置以下环境变量：
+
+```text
+SUPABASE_URL=https://你的-project-ref.supabase.co
+SUPABASE_PUBLISHABLE_KEY=你的 publishable key
+SUPABASE_REQUIRE_EMAIL_CONFIRMATION=true
+```
+
+前端会通过 Render 的 `/api/auth/config` 获取公开的 Supabase URL 和 publishable key，因此不需要把它们重复写入 GitHub。`service_role` 或 secret key 绝不能放进前端或提交到仓库。
+
+还需要在 Supabase Dashboard 完成：
+
+1. Authentication → Providers → Email：启用 Email provider 和 Confirm email。
+2. Authentication → URL Configuration：Site URL 填 `https://www.jobmatcher.win`。
+3. Redirect URLs 添加 `https://www.jobmatcher.win/**` 和 `https://jobmatcher.win/**`。
+4. 正式开放注册前配置 Custom SMTP；Supabase 默认邮件服务只适合开发测试。
+
+配置完成后，`https://ai-resume-job-matcher-api.onrender.com/health` 中应显示：
+
+```json
+{
+  "auth_provider": "supabase",
+  "supabase_configured": true
+}
+```
 
 ## 技术架构
 
@@ -223,16 +177,17 @@ GitHub Pages 前端
                 ▼
         Render FastAPI 后端
           ├── 从 Environment Variables 读取 LLM Key / Base URL
-          ├── 8,000 + 8,000 字符校验、IP 限流、60 秒超时
+          ├── 8,000 + 8,000 字符校验、IP 限流、28 秒超时
           ├── 最多同时处理 10 个 LLM 请求
           ├── 文档文本提取
           ├── 用户认证与历史记录
-          ├── 稳定评分与结果整合
+          ├── 九步综合评分与结果整合
           └── 调用 DeepSeek 等服务端 LLM
                 │
                 ▼
-          Neon Postgres
-          ├── 用户与登录 Session
+          Supabase Auth + Neon Postgres
+          ├── 邮箱验证、登录和找回密码
+          ├── 用户映射与分析摘要
           ├── 分析摘要
           └── 哈希 IP、输入长度、状态和耗时
 ```
@@ -242,18 +197,19 @@ GitHub Pages 前端
 - `/api/normalize/job`：每个 IP 每分钟 5 次、24 小时滚动窗口内 30 次。
 - `/api/ai-suggestions`：每个 IP 每分钟 3 次、24 小时滚动窗口内 20 次。
 - 简历最多 8,000 字符，JD 最多 8,000 字符，总输入最多 16,000 字符。
-- 单次 LLM 请求超时为 60 秒；超过 10 个并发请求时直接返回“当前服务器繁忙，请稍后再试”。
+- 单次 LLM 请求超时为 28 秒；超过 10 个并发请求时直接返回“当前服务器繁忙，请稍后再试”。
 - 日志只记录接口名、输入字符数、状态和耗时，不记录完整简历、JD 或 API Key。
 - `RATE_LIMIT_SALT` 用于把 IP 做不可逆 HMAC 哈希；数据库不保存原始 IP。
 - 如果部署过 v0.7 之前允许浏览器传入 `base_url` 的版本，升级后应在 LLM 控制台轮换一次 API Key，再把新 Key 只写入 Render Environment Variables。
 
 ### LLM 当前负责什么
 
-LLM 不直接决定稳定规则分。它当前负责：
+LLM 不直接决定最终总分。它当前负责：
 
 - 清洗 OCR 或网页复制产生的 JD 噪音，并合并岗位职责、任职要求、加分项和技术问题。
 - 规范化岗位要求，输出 `must_have`、`important`、`nice_to_have` 与 1-5 权重。
 - 判断简历对岗位要求的证据强度、缺口程度和可信度。
+- 输出语义匹配、经历匹配和简历质量三个受限分项。
 - 生成量化 Gap Evidence、优先修改动作和基于原简历事实的改写示例。
 - 评估证书与奖项的岗位相关性；无法验证时标记为 `unverified` 且不加分。
 - 在用户提供的公司与岗位信息范围内模拟 HR 初筛视角，不编造外部招聘案例。
@@ -268,8 +224,8 @@ LLM 不直接决定稳定规则分。它当前负责：
 - `assets/app.js`：浏览器端匹配逻辑
 - `data/keywords.json`：共享关键词配置
 - `api/server.py`：FastAPI 后端接口
-- `api/database.py`：数据库连接、用户/session 表和分析历史表
-- `api/auth_service.py`：注册、登录、密码哈希和 token 管理
+- `api/database.py`：数据库连接、Supabase 用户映射和分析历史表
+- `api/auth_service.py`：Supabase token 校验与旧账户兼容逻辑
 - `api/document_parser.py`：DOCX/PDF 文本提取
 - `api/llm_advisor.py`：LLM 建议层
 - `.env.example`：本地和云端环境变量示例
@@ -286,14 +242,14 @@ LLM 不直接决定稳定规则分。它当前负责：
 - `docs/DEPLOYMENT.md`：云端部署说明
 - `docs/INPUT_EXTRACTION.md`：文档与截图输入说明
 - `docs/LLM_ADVICE.md`：LLM 建议层说明
+- `docs/HIRING_BENCHMARKS.md`：匿名录用背景数据规范
 - `docs/ROADMAP.md`：产品路线图
 
 ## 后续路线
 
-1. 完成自定义域名 HTTPS 与生产环境 CORS 配置。
-2. 增加邮箱验证、找回密码和更完整的账号安全策略。
-3. 增加用户每日免费次数、文本长度与 LLM Token 限制。
-4. 使用人工标注的简历/JD 样本校准评分权重。
-5. 建立有来源的公司招聘案例数据集与 RAG 检索层。
-6. 优化扫描版 PDF OCR、AI 建议质量和分析历史详情页。
-7. 再评估会员、支付和简历版本管理。
+1. 为 Supabase Auth 配置生产 SMTP，并完成真实邮箱收发测试。
+2. 增加用户每日免费次数、文本长度与 LLM Token 限制。
+3. 使用人工标注的简历/JD 样本校准评分权重。
+4. 建立有来源的公司招聘案例数据集与 RAG 检索层。
+5. 优化扫描版 PDF OCR、AI 建议质量和分析历史详情页。
+6. 再评估第三方登录、会员、支付和简历版本管理。

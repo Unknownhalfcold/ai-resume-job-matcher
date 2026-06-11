@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
+import json
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
@@ -16,15 +18,18 @@ from api.auth_service import (
     authenticate_user,
     create_access_token,
     create_user,
+    get_auth_client_config,
+    get_auth_metadata,
     get_bearer_token,
     require_current_user,
     revoke_access_token,
+    supabase_is_configured,
 )
 from api.database import AnalysisHistory, User, get_database_metadata, get_database_session, initialize_database
 from api.document_parser import DocumentParseError, extract_document_text, extract_resume_text
 from api.llm_advisor import (
     LLMConfigurationError,
-    calculate_hybrid_score,
+    calculate_final_score,
     generate_advice,
     get_llm_analysis_contract,
     get_llm_config,
@@ -141,11 +146,41 @@ async def request_validation_exception_handler(
 
 KEYWORDS = load_keywords()
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+BENCHMARKS_PATH = Path(__file__).resolve().parent.parent / "data" / "hiring_benchmarks.json"
+
+
+def load_hiring_benchmarks() -> dict[str, Any]:
+    try:
+        return json.loads(BENCHMARKS_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"companies": {}}
+
+
+HIRING_BENCHMARKS = load_hiring_benchmarks()
+
+
+def find_hiring_benchmark(job_text: str) -> dict[str, Any] | None:
+    normalized_job = job_text.lower()
+    companies = HIRING_BENCHMARKS.get("companies", {})
+    if not isinstance(companies, dict):
+        return None
+    for company_name, benchmark in companies.items():
+        if not isinstance(benchmark, dict):
+            continue
+        aliases = benchmark.get("aliases", [])
+        company_terms = [str(company_name), *(str(alias) for alias in aliases if alias)]
+        if any(term.lower() in normalized_job for term in company_terms):
+            return {
+                "company_name": company_name,
+                **benchmark,
+            }
+    return None
 
 
 def serialize_user(user: User) -> dict[str, Any]:
     return {
         "id": user.id,
+        "auth_id": user.supabase_user_id,
         "email": user.email,
         "created_at": user.created_at.isoformat(),
         "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
@@ -180,6 +215,7 @@ def health() -> dict[str, Any]:
         **get_database_metadata(),
         **get_llm_metadata(),
         **get_request_control_metadata(),
+        **get_auth_metadata(),
     }
 
 
@@ -199,8 +235,15 @@ def keywords() -> dict[str, Any]:
     }
 
 
+@app.get("/api/auth/config")
+def auth_config() -> dict[str, object]:
+    return get_auth_client_config()
+
+
 @app.post("/api/auth/register")
 def register(payload: AuthRequest, session: Session = Depends(get_database_session)) -> dict[str, Any]:
+    if supabase_is_configured():
+        raise HTTPException(status_code=409, detail="Register through Supabase Auth.")
     try:
         user = create_user(session, payload.email, payload.password)
     except ValueError as exc:
@@ -216,6 +259,8 @@ def register(payload: AuthRequest, session: Session = Depends(get_database_sessi
 
 @app.post("/api/auth/login")
 def login(payload: AuthRequest, session: Session = Depends(get_database_session)) -> dict[str, Any]:
+    if supabase_is_configured():
+        raise HTTPException(status_code=409, detail="Sign in through Supabase Auth.")
     user = authenticate_user(session, payload.email, payload.password)
     if not user:
         raise HTTPException(status_code=401, detail="Email or password is incorrect.")
@@ -372,7 +417,7 @@ def normalize_job(
             status = "timeout" if is_timeout else "error"
             complete_usage_event(session, usage_event, status, started_at)
             if is_timeout:
-                raise HTTPException(status_code=504, detail="LLM 请求超过 60 秒，请稍后再试。") from exc
+                raise HTTPException(status_code=504, detail="LLM 请求超过 28 秒，请稍后再试。") from exc
             raise HTTPException(status_code=502, detail="LLM JD 整理失败，请稍后再试。") from exc
         complete_usage_event(session, usage_event, "success", started_at)
 
@@ -392,6 +437,7 @@ def ai_suggestions(
     session: Session = Depends(get_database_session),
 ) -> dict[str, Any]:
     analysis = analyze(payload.resume, payload.job, keywords=KEYWORDS)
+    analysis["benchmark_context"] = find_hiring_benchmark(payload.job)
     llm_config = get_llm_config()
     with llm_request_slot() as started_at:
         usage_event = enforce_rate_limit(
@@ -410,7 +456,7 @@ def ai_suggestions(
             status = "timeout" if is_timeout else "error"
             complete_usage_event(session, usage_event, status, started_at)
             if is_timeout:
-                raise HTTPException(status_code=504, detail="LLM 请求超过 60 秒，请稍后再试。") from exc
+                raise HTTPException(status_code=504, detail="LLM 请求超过 28 秒，请稍后再试。") from exc
             raise HTTPException(status_code=502, detail="AI 建议生成失败，请稍后再试。") from exc
         complete_usage_event(session, usage_event, "success", started_at)
 
@@ -421,7 +467,7 @@ def ai_suggestions(
         "api_style": llm_config.api_style,
         "rule_score": analysis.get("score"),
         "rule_score_source": "keyword_weight_formula",
-        "hybrid_score": calculate_hybrid_score(analysis.get("score"), advice),
+        "final_scoring": calculate_final_score(analysis.get("score"), advice),
         "analysis_contract": get_llm_analysis_contract(),
         "advice": advice,
     }
