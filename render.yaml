@@ -35,8 +35,8 @@ services:
       - key: RATE_LIMIT_SALT
         sync: false
       - key: SUPABASE_URL
-        sync: false
+        value: https://pobhsdhecsaxvnargdpa.supabase.co
       - key: SUPABASE_PUBLISHABLE_KEY
-        sync: false
+        value: sb_publishable_CtINPU0xxKzoPlVvffmtYQ_MkkYmBqy
       - key: SUPABASE_REQUIRE_EMAIL_CONFIRMATION
         value: "true"
