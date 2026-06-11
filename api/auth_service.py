@@ -20,6 +20,8 @@ EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 PASSWORD_MIN_LENGTH = 8
 PASSWORD_HASH_ALGORITHM = "pbkdf2_sha256"
 PASSWORD_HASH_ITERATIONS = 210_000
+DEFAULT_SUPABASE_URL = "https://pobhsdhecsaxvnargdpa.supabase.co"
+DEFAULT_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_CtINPU0xxKzoPlVvffmtYQ_MkkYmBqy"
 
 
 def utc_now() -> datetime:
@@ -31,11 +33,19 @@ def get_token_ttl_days() -> int:
 
 
 def supabase_is_configured() -> bool:
-    return bool(os.getenv("SUPABASE_URL") and get_supabase_public_key())
+    return bool(get_supabase_url() and get_supabase_public_key())
 
 
 def get_supabase_public_key() -> str:
-    return os.getenv("SUPABASE_PUBLISHABLE_KEY") or os.getenv("SUPABASE_ANON_KEY") or ""
+    return (
+        os.getenv("SUPABASE_PUBLISHABLE_KEY")
+        or os.getenv("SUPABASE_ANON_KEY")
+        or DEFAULT_SUPABASE_PUBLISHABLE_KEY
+    )
+
+
+def get_supabase_url() -> str:
+    return os.getenv("SUPABASE_URL") or DEFAULT_SUPABASE_URL
 
 
 def get_auth_metadata() -> dict[str, object]:
@@ -54,7 +64,7 @@ def get_auth_client_config() -> dict[str, object]:
     return {
         "auth_provider": "supabase" if configured else "legacy",
         "supabase_configured": configured,
-        "supabase_url": os.getenv("SUPABASE_URL", "") if configured else "",
+        "supabase_url": get_supabase_url() if configured else "",
         "supabase_publishable_key": get_supabase_public_key() if configured else "",
         "email_confirmation_required": os.getenv(
             "SUPABASE_REQUIRE_EMAIL_CONFIRMATION",
@@ -176,7 +186,7 @@ def get_user_from_token(session: Session, token: str) -> User | None:
 
 
 def get_supabase_identity(token: str) -> dict[str, str]:
-    supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    supabase_url = get_supabase_url().rstrip("/")
     publishable_key = get_supabase_public_key()
     if not supabase_url or not publishable_key:
         raise HTTPException(status_code=503, detail="Supabase authentication is not configured.")

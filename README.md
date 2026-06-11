@@ -148,7 +148,7 @@ SUPABASE_PUBLISHABLE_KEY=你的 publishable key
 SUPABASE_REQUIRE_EMAIL_CONFIRMATION=true
 ```
 
-前端会通过 Render 的 `/api/auth/config` 获取 Supabase URL 和 publishable key。publishable key 本来就是供浏览器使用的公开标识，不等同于 LLM API Key；`service_role` 或 secret key 绝不能放进前端或提交到仓库。
+前端会通过 Render 的 `/api/auth/config` 获取 Supabase URL 和 publishable key。Render 环境变量优先，仓库中的公开项目配置只作为当前项目的兜底。publishable key 本来就是供浏览器使用的公开标识，不等同于 LLM API Key；`service_role` 或 secret key 绝不能放进前端或提交到仓库。
 
 还需要在 Supabase Dashboard 完成：
 

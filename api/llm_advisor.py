@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 DEFAULT_LLM_MODEL = "gpt-5.5"
 DEFAULT_MAX_OUTPUT_TOKENS = 2800
+MAX_LLM_TIMEOUT_SECONDS = 28
 MAX_JOB_OCR_CANDIDATE_CHARS = 16000
 
 APIStyle = Literal["responses", "chat_completions"]
@@ -853,6 +854,14 @@ def get_float_config_value(env_name: str, default_value: float) -> float:
     return float(raw_value)
 
 
+def get_llm_request_timeout_seconds() -> float:
+    configured_timeout = get_float_config_value(
+        "LLM_REQUEST_TIMEOUT_SECONDS",
+        MAX_LLM_TIMEOUT_SECONDS,
+    )
+    return max(1, min(configured_timeout, MAX_LLM_TIMEOUT_SECONDS))
+
+
 def get_llm_config() -> LLMConfig:
     return LLMConfig(
         provider=os.getenv("LLM_PROVIDER", "openai"),
@@ -876,7 +885,7 @@ def get_llm_metadata() -> dict[str, Any]:
         "llm_provider": config.provider,
         "llm_model": config.model,
         "llm_api_style": config.api_style,
-        "llm_timeout_seconds": get_float_config_value("LLM_REQUEST_TIMEOUT_SECONDS", 28),
+        "llm_timeout_seconds": get_llm_request_timeout_seconds(),
     }
 
 
@@ -1037,7 +1046,7 @@ def create_openai_client(config: LLMConfig) -> Any:
 
     client_options = {
         "api_key": config.api_key,
-        "timeout": get_float_config_value("LLM_REQUEST_TIMEOUT_SECONDS", 28),
+        "timeout": get_llm_request_timeout_seconds(),
         "max_retries": 0,
     }
     if config.base_url:
