@@ -303,6 +303,13 @@ JD_QUESTION_PATTERN = re.compile(
     r"(技术问题|技术问答|面试题|问答题|开放问题|如何|怎么|为什么|请.*(说明|描述|解释|谈谈)|你.*理解|question|explain|describe|how would|what is|why)",
     re.IGNORECASE,
 )
+APPLICATION_ONLY_REQUIREMENT_PATTERN = re.compile(
+    r"(到岗|每周.{0,4}天|实习天数|实习时长|连续实习|可实习|入职时间|"
+    r"工作地点|地点偏好|期望薪资|薪资要求|身份证|政治面貌|网申来源|接受调剂|"
+    r"available|availability|days?\s+per\s+week|start\s+date|salary|"
+    r"work\s+location|relocat|visa|work\s+authorization)",
+    re.IGNORECASE,
+)
 JD_NOISE_LINE_PATTERN = re.compile(
     r"^(首页|登录|注册|消息|搜索|筛选|推荐|广告|打开APP|下载APP|扫码|微信|微博|分享|收藏|举报|反馈|"
     r"上一页|下一页|更多|展开|收起|立即申请|申请职位|投递简历|在线沟通|查看地图|公司主页|职位详情|"
@@ -1259,6 +1266,19 @@ def expand_fast_advice(
         return validated
 
     requirements = validated_items(FastRequirementItem, raw.get("requirements"), 6)
+    for requirement in requirements:
+        if is_application_only_requirement(
+            requirement.get("title"),
+            requirement.get("category"),
+        ):
+            requirement.update(
+                {
+                    "category": "网申/安排信息",
+                    "importance": "nice_to_have",
+                    "weight": 1,
+                    "evidence_expected": "在网申表单或与招聘方沟通时确认，不要求写入简历正文。",
+                }
+            )
     fallback_keywords = [
         *(analysis.get("priority_gaps") or []),
         *(analysis.get("matched_keywords") or []),
@@ -1296,7 +1316,11 @@ def expand_fast_advice(
             }
         )
 
-    evidence_items = validated_items(FastEvidenceItem, raw.get("evidence_review"), 5)
+    evidence_items = [
+        item
+        for item in validated_items(FastEvidenceItem, raw.get("evidence_review"), 5)
+        if not is_application_only_requirement(item.get("title"))
+    ]
     evidence_titles = {item["title"].strip().lower() for item in evidence_items}
     matched_titles = {
         str(item.get("name") or "").strip().lower()
@@ -1307,7 +1331,9 @@ def expand_fast_advice(
         title = requirement["title"]
         if title.lower() in evidence_titles:
             continue
-        matched = title.lower() in matched_titles
+        if is_application_only_requirement(title, requirement.get("category")):
+            continue
+        matched = any(requirement_title_matches_keyword(title, keyword) for keyword in matched_titles)
         evidence_items.append(
             {
                 "title": title,
@@ -1322,10 +1348,19 @@ def expand_fast_advice(
         if len(evidence_items) >= 5:
             break
 
-    actions = validated_items(TopActionItem, raw.get("top_actions"), 4)
+    actions = [
+        item
+        for item in validated_items(TopActionItem, raw.get("top_actions"), 4)
+        if not is_application_only_requirement(
+            item.get("action"),
+            item.get("target_section"),
+        )
+    ]
     for requirement in requirements:
         if len(actions) >= 3:
             break
+        if is_application_only_requirement(requirement.get("title"), requirement.get("category")):
+            continue
         actions.append(
             {
                 "priority": "high" if requirement["importance"] == "must_have" else "medium",
@@ -1567,6 +1602,23 @@ def clamp_score(value: Any) -> int:
         return 0
 
 
+def normalize_requirement_match_text(value: Any) -> str:
+    return re.sub(r"[\s/_\-（）()]+", "", str(value or "").strip().lower())
+
+
+def requirement_title_matches_keyword(title: Any, keyword: Any) -> bool:
+    normalized_title = normalize_requirement_match_text(title)
+    normalized_keyword = normalize_requirement_match_text(keyword)
+    if len(normalized_title) < 2 or len(normalized_keyword) < 2:
+        return False
+    return normalized_keyword in normalized_title or normalized_title in normalized_keyword
+
+
+def is_application_only_requirement(title: Any, category: Any = "") -> bool:
+    text = f"{title or ''} {category or ''}"
+    return bool(APPLICATION_ONLY_REQUIREMENT_PATTERN.search(text))
+
+
 def calculate_final_score(keyword_score: int | float | None, advice: Mapping[str, Any]) -> dict[str, Any]:
     keyword_match_score = clamp_score(keyword_score)
     assessment = advice.get("score_assessment")
@@ -1608,6 +1660,8 @@ def calculate_final_score(keyword_score: int | float | None, advice: Mapping[str
         if not isinstance(requirement, Mapping) or requirement.get("importance") != "must_have":
             continue
         title = str(requirement.get("title") or "").strip()
+        if is_application_only_requirement(title, requirement.get("category")):
+            continue
         evidence = evidence_by_title.get(title.lower(), {})
         evidence_score = clamp_score(evidence.get("evidence_score"))
         level = str(evidence.get("level") or "missing")
