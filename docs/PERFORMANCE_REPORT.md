@@ -37,7 +37,7 @@ DeepSeek 结构化推理          约 16-17 秒，thinking mode 开启后可能�
 
 ## Thinking Mode
 
-DeepSeek thinking mode 现在由服务端环境变量 `LLM_THINKING_MODE` 控制，默认使用 `enabled`。前端不能修改这个值。
+DeepSeek 最终综合评分的 thinking mode 由服务端环境变量 `LLM_THINKING_MODE` 控制，默认使用 `enabled`。前端不能修改这个值。JD 清洗和岗位能力提取是结构化抽取任务，固定关闭 thinking，以减少超时和不完整 JSON；复杂的最终评分仍保留 thinking。
 
 当前没有在同一模型版本、同一输入和同一服务器状态下得到足够多的 A/B 样本，因此不能严谨地断言关闭 thinking 后质量没有损失。现阶段优先保持开启，并在后续保存以下匿名指标后再比较：
 

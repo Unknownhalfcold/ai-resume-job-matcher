@@ -29,7 +29,7 @@ services:
       - key: LLM_THINKING_MODE
         value: enabled
       - key: LLM_MAX_OUTPUT_TOKENS
-        value: "2000"
+        value: "6000"
       - key: LLM_RETRY_ON_SCHEMA_ERROR
         value: "false"
       - key: MAX_LLM_CONCURRENCY

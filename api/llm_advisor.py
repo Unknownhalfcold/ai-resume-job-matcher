@@ -1216,11 +1216,22 @@ def create_openai_client(config: LLMConfig) -> Any:
     return OpenAI(**client_options)
 
 
-def get_chat_completion_options(config: LLMConfig) -> dict[str, Any]:
+def is_deepseek_config(config: LLMConfig) -> bool:
     provider = config.provider.strip().lower()
     base_url = (config.base_url or "").lower()
-    if provider == "deepseek" or "deepseek.com" in base_url:
-        thinking_mode = (os.getenv("LLM_THINKING_MODE") or "enabled").strip().lower()
+    return provider == "deepseek" or "deepseek.com" in base_url
+
+
+def get_chat_completion_options(
+    config: LLMConfig,
+    thinking_override: str | None = None,
+) -> dict[str, Any]:
+    if is_deepseek_config(config):
+        thinking_mode = (
+            thinking_override
+            or os.getenv("LLM_THINKING_MODE")
+            or "enabled"
+        ).strip().lower()
         return {
             "extra_body": {
                 "thinking": {
@@ -1229,6 +1240,13 @@ def get_chat_completion_options(config: LLMConfig) -> dict[str, Any]:
             }
         }
     return {}
+
+
+def get_advice_max_tokens(config: LLMConfig) -> int:
+    thinking_mode = (os.getenv("LLM_THINKING_MODE") or "enabled").strip().lower()
+    if is_deepseek_config(config) and thinking_mode not in {"disabled", "off", "false", "0"}:
+        return max(config.max_output_tokens, 6000)
+    return min(config.max_output_tokens, 1800)
 
 
 def extract_balanced_json_object(text: str) -> str | None:
@@ -1984,7 +2002,7 @@ def generate_with_chat_completions(
         ],
         response_format={"type": "json_object"},
         temperature=config.temperature,
-        max_tokens=min(config.max_output_tokens, 1400),
+        max_tokens=get_advice_max_tokens(config),
         **get_chat_completion_options(config),
     )
 
@@ -2021,7 +2039,7 @@ def generate_with_chat_completions(
             ],
             response_format={"type": "json_object"},
             temperature=0,
-            max_tokens=min(config.max_output_tokens, 1400),
+            max_tokens=get_advice_max_tokens(config),
             **get_chat_completion_options(config),
         )
 
@@ -2078,7 +2096,7 @@ def normalize_job_with_chat_completions(
         response_format={"type": "json_object"},
         temperature=0,
         max_tokens=min(config.max_output_tokens, 1800),
-        **get_chat_completion_options(config),
+        **get_chat_completion_options(config, "disabled"),
     )
 
     content = response.choices[0].message.content
@@ -2152,8 +2170,8 @@ def discover_job_capabilities(
             ],
             response_format={"type": "json_object"},
             temperature=0,
-            max_tokens=min(config.max_output_tokens, 1200),
-            **get_chat_completion_options(config),
+            max_tokens=min(config.max_output_tokens, 1600),
+            **get_chat_completion_options(config, "disabled"),
         )
         content = response.choices[0].message.content
         if not isinstance(content, str) or not content.strip():

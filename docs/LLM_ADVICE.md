@@ -20,7 +20,7 @@ LLM 层负责岗位能力提取、语义、经历、质量、能力对齐和个�
 
 对兼容 Chat Completions 的第三方模型，模型先返回精简的评分证据、岗位要求和优先动作，后端再确定性地补齐 Gap、评分口径、网申边界和结果页结构。这样可以减少延迟和 JSON 截断，同时不把最终分数交给模型。
 
-当服务端使用 DeepSeek 时，thinking mode 由 `LLM_THINKING_MODE` 控制，当前默认使用 `enabled`。这是服务端环境变量，前端用户不能修改。后续应使用同一批人工标注样本比较 enabled / disabled 的准确率、评分波动和耗时，再决定是否关闭。
+当服务端使用 DeepSeek 时，最终综合评分的 thinking mode 由 `LLM_THINKING_MODE` 控制，当前默认使用 `enabled`。JD 清洗和能力表提取属于边界清晰的结构化抽取任务，固定使用 thinking disabled，避免推理 token 挤占 JSON 输出。这个设置只存在于服务端，前端用户不能修改。后续应使用同一批人工标注样本比较最终评分 enabled / disabled 的准确率、评分波动和耗时，再决定是否关闭。
 
 到岗天数、实习时长、期望薪资、工作地点和身份类网申字段会保留为申请提醒，但不会进入核心技能惩罚或分数上限计算。规则层还会使用包含关系连接关键词和 LLM 要求，例如已匹配 `Excel` 时，可视为“高级 Excel 技能”已有基础证据。
 
@@ -315,7 +315,7 @@ $env:LLM_MODEL="控制台中可用的模型名"
 - `LLM_MODEL`：模型名称。
 - `LLM_ANALYSIS_TIMEOUT_SECONDS`：能力提取和综合分析的服务端等待上限，当前默认 90 秒。
 - `LLM_API_STYLE`：`responses` 或 `chat_completions`。
-- `LLM_MAX_OUTPUT_TOKENS`：限制建议层输出长度，当前部署值为 `2000`。
+- `LLM_MAX_OUTPUT_TOKENS`：限制建议层输出长度，thinking 综合分析当前部署值为 `6000`。
 - `LLM_TEMPERATURE`：控制输出随机性，默认 `0.2`。
 - `MAX_LLM_CONCURRENCY`：同时执行的模型请求数，默认 `10`。
 - `RATE_LIMIT_SALT`：哈希客户端 IP 的随机盐，生产环境必须设置。
