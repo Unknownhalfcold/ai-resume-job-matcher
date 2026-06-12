@@ -962,7 +962,7 @@ def get_float_config_value(env_name: str, default_value: float) -> float:
 
 def get_llm_request_timeout_seconds() -> float:
     configured_timeout = get_float_config_value(
-        "LLM_REQUEST_TIMEOUT_SECONDS",
+        "LLM_ANALYSIS_TIMEOUT_SECONDS",
         MAX_LLM_TIMEOUT_SECONDS,
     )
     return max(1, min(configured_timeout, MAX_LLM_TIMEOUT_SECONDS))

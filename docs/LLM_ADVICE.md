@@ -313,10 +313,10 @@ $env:LLM_MODEL="控制台中可用的模型名"
 - `LLM_API_KEY`：第三方或 OpenAI API Key。
 - `LLM_BASE_URL`：第三方兼容接口地址。为空时默认使用 OpenAI 官方接口。
 - `LLM_MODEL`：模型名称。
+- `LLM_ANALYSIS_TIMEOUT_SECONDS`：能力提取和综合分析的服务端等待上限，当前默认 90 秒。
 - `LLM_API_STYLE`：`responses` 或 `chat_completions`。
-- `LLM_MAX_OUTPUT_TOKENS`：限制建议层输出长度，默认 `5200`。
+- `LLM_MAX_OUTPUT_TOKENS`：限制建议层输出长度，当前部署值为 `2000`。
 - `LLM_TEMPERATURE`：控制输出随机性，默认 `0.2`。
-- `LLM_REQUEST_TIMEOUT_SECONDS`：单次模型调用超时，生产环境默认 `60`。
 - `MAX_LLM_CONCURRENCY`：同时执行的模型请求数，默认 `10`。
 - `RATE_LIMIT_SALT`：哈希客户端 IP 的随机盐，生产环境必须设置。
 

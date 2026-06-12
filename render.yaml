@@ -24,7 +24,7 @@ services:
         sync: false
       - key: LLM_MODEL
         sync: false
-      - key: LLM_REQUEST_TIMEOUT_SECONDS
+      - key: LLM_ANALYSIS_TIMEOUT_SECONDS
         value: "90"
       - key: LLM_THINKING_MODE
         value: enabled
