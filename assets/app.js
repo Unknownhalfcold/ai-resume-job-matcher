@@ -16,11 +16,14 @@ const state = {
   jdTextEditedByUser: false,
   jdOcrWorkerPromise: null,
   jdOcrProgressHandler: null,
+  capabilityDiscovery: null,
+  capabilityAssessments: [],
+  pendingAnalysis: null,
 };
 
 const BACKEND_TIMEOUT_MS = 12000;
 const API_HEALTH_TIMEOUT_MS = 25000;
-const LLM_REQUEST_TIMEOUT_MS = 32000;
+const LLM_REQUEST_TIMEOUT_MS = 100000;
 const MAX_RESUME_CHARS = 8000;
 const MAX_JOB_CHARS = 8000;
 const MAX_TOTAL_INPUT_CHARS = 16000;
@@ -28,7 +31,7 @@ const AUTH_TOKEN_STORAGE_KEY = "airjm_auth_token";
 const CLOUD_API_BASE_URL = window.APP_CONFIG?.apiBaseUrl || "https://ai-resume-job-matcher-api.onrender.com";
 const SUPABASE_URL = window.APP_CONFIG?.supabaseUrl || "";
 const SUPABASE_PUBLISHABLE_KEY = window.APP_CONFIG?.supabasePublishableKey || "";
-const PAGE_NAMES = ["start", "analyze", "result", "history", "privacy"];
+const PAGE_NAMES = ["start", "analyze", "capabilities", "result", "history", "privacy"];
 const clipboardFileKeys = new WeakMap();
 let clipboardFileSequence = 0;
 
@@ -106,6 +109,13 @@ const elements = {
   progressValue: document.querySelector("#progress-value"),
   progressStep: document.querySelector("#progress-step"),
   loadingMessage: document.querySelector("#loading-message"),
+  capabilityRows: document.querySelector("#capability-rows"),
+  capabilityRole: document.querySelector("#capability-role"),
+  capabilityCount: document.querySelector("#capability-count"),
+  capabilityEngine: document.querySelector("#capability-engine"),
+  capabilityNote: document.querySelector("#capability-note"),
+  skipCapabilitiesButton: document.querySelector("#skip-capabilities"),
+  confirmCapabilitiesButton: document.querySelector("#confirm-capabilities"),
   resumeFileStatus: document.querySelector("#resume-file-status"),
   jdFileStatus: document.querySelector("#jd-file-status"),
   resultPanel: document.querySelector("#result"),
@@ -270,6 +280,9 @@ function clearCurrentJob({ returnToAnalyzer = false } = {}) {
   state.jdSources = [];
   state.jdTextEditedByUser = false;
   state.lastResult = null;
+  state.capabilityDiscovery = null;
+  state.capabilityAssessments = [];
+  state.pendingAnalysis = null;
   renderEmptyResult();
   clearInputStatus("jd");
   hideLoading();
@@ -287,6 +300,9 @@ function clearCurrentResume() {
   elements.resumeInput.value = "";
   elements.resumeFile.value = "";
   state.lastResult = null;
+  state.capabilityDiscovery = null;
+  state.capabilityAssessments = [];
+  state.pendingAnalysis = null;
   renderEmptyResult();
   clearInputStatus("resume");
   hideLoading();
@@ -1498,10 +1514,223 @@ async function generateAiAdvice(resumeText, jobText) {
       body: JSON.stringify({
         resume: resumeText,
         job: jobText,
+        capability_assessments: state.capabilityAssessments,
       }),
     },
     LLM_REQUEST_TIMEOUT_MS,
   );
+}
+
+async function discoverCapabilitiesViaApi(resumeText, jobText) {
+  return fetchJsonWithTimeout(
+    `${state.apiBaseUrl}/api/capabilities`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        resume: resumeText,
+        job: jobText,
+      }),
+    },
+    LLM_REQUEST_TIMEOUT_MS,
+  );
+}
+
+function buildCapabilityFallback(resumeText, jobText) {
+  let jobKeywords = state.keywords
+    .filter((keyword) => containsAny(jobText, keyword.aliases))
+    .sort((a, b) => b.weight - a.weight)
+    .slice(0, 8);
+  if (!jobKeywords.length) {
+    jobKeywords = [
+      { name: "岗位核心任务", category: "岗位能力", weight: 4, aliases: [], suggestion: "补充与岗位职责直接相关的真实任务。" },
+      { name: "专业方法与工具", category: "专业能力", weight: 3, aliases: [], suggestion: "说明使用过的方法、工具和熟练程度。" },
+      { name: "成果证据质量", category: "成果表达", weight: 3, aliases: [], suggestion: "补充可核验的交付物、影响或量化结果。" },
+    ];
+  }
+
+  return {
+    role_title: "当前目标岗位",
+    engine: "rule_fallback",
+    note: "云端能力识别暂不可用，已根据 JD 关键词生成基础能力表。",
+    capabilities: jobKeywords.map((keyword) => {
+      const matched = keyword.aliases.length ? containsAny(resumeText, keyword.aliases) : false;
+      return {
+        title: keyword.name,
+        category: "professional",
+        source: "explicit",
+        importance: keyword.weight >= 5 ? "must_have" : keyword.weight >= 3 ? "important" : "nice_to_have",
+        weight: keyword.weight,
+        jd_evidence: `JD 中出现与“${keyword.name}”相关的要求`,
+        resume_evidence: matched ? "简历中识别到相关关键词" : "",
+        inferred_proficiency: matched ? "basic" : "unknown",
+        confidence: matched ? 60 : 40,
+        assessment_prompt: keyword.suggestion,
+      };
+    }),
+  };
+}
+
+function capabilityCategoryLabel(category) {
+  return {
+    tool: "工具技能",
+    professional: "专业方法",
+    domain: "领域知识",
+    language: "语言能力",
+    soft: "软性能力",
+  }[category] || "岗位能力";
+}
+
+function capabilitySourceLabel(source) {
+  return source === "inferred" ? "职责隐含" : "JD 明确";
+}
+
+function createCapabilitySelect(selectedValue) {
+  const select = document.createElement("select");
+  select.className = "capability-proficiency";
+  select.setAttribute("aria-label", "选择真实熟练度");
+  [
+    ["unknown", "暂不确定"],
+    ["none", "尚未具备"],
+    ["basic", "基础了解"],
+    ["intermediate", "熟练使用"],
+    ["advanced", "高级应用"],
+    ["expert", "专家水平"],
+  ].forEach(([value, label]) => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    option.selected = value === selectedValue;
+    select.append(option);
+  });
+  return select;
+}
+
+function renderCapabilityReview(discovery) {
+  state.capabilityDiscovery = discovery;
+  const capabilities = discovery.capabilities || [];
+  elements.capabilityRows.replaceChildren();
+  elements.capabilityRole.textContent = discovery.role_title || "当前目标岗位";
+  elements.capabilityCount.textContent = String(capabilities.length);
+  elements.capabilityEngine.textContent = discovery.engine === "rule_fallback"
+    ? "规则回退"
+    : `${discovery.provider || state.llmProvider || "LLM"} + JD`;
+  elements.capabilityNote.textContent = discovery.note
+    || "职责隐含条件只在能够从 JD 任务直接推导时展示；请按真实情况确认。";
+
+  capabilities.forEach((capability, index) => {
+    const row = document.createElement("div");
+    row.className = "capability-row";
+    row.dataset.capabilityIndex = String(index);
+    row.setAttribute("role", "row");
+
+    const name = document.createElement("div");
+    name.className = "capability-name";
+    const title = document.createElement("strong");
+    title.textContent = capability.title;
+    const tags = document.createElement("div");
+    tags.className = "capability-tags";
+    [
+      capabilityCategoryLabel(capability.category),
+      capabilitySourceLabel(capability.source),
+      importanceText(capability.importance),
+    ].forEach((label) => {
+      const tag = document.createElement("span");
+      tag.textContent = label;
+      tags.append(tag);
+    });
+    name.append(title, tags);
+
+    const jdEvidence = document.createElement("p");
+    jdEvidence.className = "capability-evidence";
+    jdEvidence.textContent = capability.jd_evidence || "未返回具体依据";
+
+    const resumeEvidence = document.createElement("p");
+    resumeEvidence.className = "capability-evidence";
+    resumeEvidence.textContent = capability.resume_evidence || "简历中暂未识别到直接证据";
+
+    const select = createCapabilitySelect(capability.inferred_proficiency || "unknown");
+
+    const evidenceInput = document.createElement("input");
+    evidenceInput.className = "capability-user-evidence";
+    evidenceInput.type = "text";
+    evidenceInput.maxLength = 500;
+    evidenceInput.placeholder = capability.assessment_prompt || "补充真实项目、任务或成果";
+    evidenceInput.setAttribute("aria-label", `${capability.title}的补充证据`);
+
+    row.append(name, jdEvidence, resumeEvidence, select, evidenceInput);
+    elements.capabilityRows.append(row);
+  });
+}
+
+function collectCapabilityAssessments() {
+  const capabilities = state.capabilityDiscovery?.capabilities || [];
+  return [...elements.capabilityRows.querySelectorAll(".capability-row")]
+    .map((row) => {
+      const capability = capabilities[Number(row.dataset.capabilityIndex)];
+      if (!capability) return null;
+      return {
+        title: capability.title,
+        category: capability.category,
+        importance: capability.importance,
+        weight: capability.weight,
+        proficiency: row.querySelector(".capability-proficiency")?.value || "unknown",
+        evidence: row.querySelector(".capability-user-evidence")?.value.trim() || "",
+      };
+    })
+    .filter((item) => item && item.proficiency !== "unknown");
+}
+
+async function prepareCapabilityReview(resumeText, jobText) {
+  showLoading("正在识别岗位显性与隐性能力");
+  updateProgress(34, "能力识别", "正在分析工具、专业方法、领域知识和软性条件");
+
+  let discovery;
+  if (state.apiAvailable && state.llmConfigured) {
+    try {
+      discovery = await discoverCapabilitiesViaApi(resumeText, jobText);
+    } catch (error) {
+      discovery = buildCapabilityFallback(resumeText, jobText);
+      discovery.note = `AI 能力识别暂未完成，已使用规则生成基础表：${error.message}`;
+    }
+  } else {
+    discovery = buildCapabilityFallback(resumeText, jobText);
+  }
+
+  state.pendingAnalysis = { resumeText, jobText };
+  state.capabilityAssessments = [];
+  renderCapabilityReview(discovery);
+  updateProgress(100, "能力表已生成", "请确认真实熟练度后继续");
+  hideLoading();
+  showPage("capabilities");
+}
+
+async function completeAnalysis(resumeText, jobText, capabilityAssessments = []) {
+  state.capabilityAssessments = capabilityAssessments;
+  showLoading("正在计算综合匹配度");
+  try {
+    updateProgress(28, "规则分析", "正在识别岗位关键词和简历证据");
+    const result = await runAnalysis(resumeText, jobText);
+    if (state.apiAvailable && state.llmConfigured) {
+      updateProgress(58, "AI 综合分析", "正在融合语义、经历、简历质量与能力自评");
+      try {
+        const response = await generateAiAdvice(resumeText, jobText);
+        applyAiScoringToResult(result, response);
+      } catch (aiError) {
+        result.ai_error = aiError.message;
+        elements.runNote.textContent = "AI 分析超时或失败，已保留关键词初步结果";
+      }
+    }
+    updateProgress(90, "生成结果", "正在整理评分、缺口和建议");
+    renderResultPage(result);
+    await saveAnalysisHistory(resumeText, jobText, result);
+  } catch (error) {
+    updateProgress(100, "分析失败", error.message);
+    elements.runNote.textContent = error.message;
+    window.setTimeout(hideLoading, 900);
+  }
 }
 
 async function runAnalysis(resumeText, jobText) {
@@ -1688,6 +1917,18 @@ function importanceText(importance) {
   return labels[importance] || importance;
 }
 
+function proficiencyText(proficiency) {
+  const labels = {
+    unknown: "暂不确定",
+    none: "尚未具备",
+    basic: "基础了解",
+    intermediate: "熟练使用",
+    advanced: "高级应用",
+    expert: "专家水平",
+  };
+  return labels[proficiency] || proficiency;
+}
+
 function impactText(impact) {
   const labels = {
     high: "高影响",
@@ -1752,11 +1993,12 @@ function renderScoringProcess(finalScoring = null, keywordScore = 0) {
     { step: 2, title: "语义匹配", value: "待 AI" },
     { step: 3, title: "经历匹配", value: "待 AI" },
     { step: 4, title: "简历质量", value: "待 AI" },
-    { step: 5, title: "加分项", value: "待 AI" },
-    { step: 6, title: "加权基础分", value: "待 AI" },
-    { step: 7, title: "核心技能惩罚", value: "待 AI" },
-    { step: 8, title: "分数上限", value: "待 AI" },
-    { step: 9, title: "最终分数", value: "待 AI" },
+    { step: 5, title: "能力对齐", value: "待 AI" },
+    { step: 6, title: "加分项", value: "待 AI" },
+    { step: 7, title: "加权基础分", value: "待 AI" },
+    { step: 8, title: "核心技能惩罚", value: "待 AI" },
+    { step: 9, title: "分数上限", value: "待 AI" },
+    { step: 10, title: "最终分数", value: "待 AI" },
   ];
   steps.forEach((step) => {
     const item = document.createElement("div");
@@ -1812,19 +2054,31 @@ function renderAiAdvice(response) {
   elements.aiAdviceContent.replaceChildren();
   const providerLabel = response.provider ? `${response.provider} / ${response.model}` : response.model;
   const finalScore = response.final_scoring?.score;
+  const timingLabel = response.timing?.total_ms ? ` · ${(response.timing.total_ms / 1000).toFixed(1)}s` : "";
+  const thinkingLabel = response.thinking_mode ? ` · thinking ${response.thinking_mode}` : "";
   elements.aiAdviceStatus.textContent = finalScore === undefined
     ? `AI 建议已生成 · ${providerLabel} · 规则分数保持 ${response.rule_score}/100`
-    : `AI 综合分析已生成 · ${providerLabel} · 最终分 ${finalScore}/100`;
+    : `AI 综合分析已生成 · ${providerLabel}${thinkingLabel}${timingLabel} · 最终分 ${finalScore}/100`;
 
   const summary = createAdviceCard("整体判断", [advice.summary]);
 
   const finalScoringCard = response.final_scoring
     ? createAdviceCard("综合评分", [
         `${response.final_scoring.score}/100`,
-        `关键词 ${response.final_scoring.keyword_match_score} · 语义 ${response.final_scoring.semantic_match_score} · 经历 ${response.final_scoring.experience_match_score} · 简历质量 ${response.final_scoring.resume_quality_score}`,
+        `关键词 ${response.final_scoring.keyword_match_score} · 语义 ${response.final_scoring.semantic_match_score} · 经历 ${response.final_scoring.experience_match_score} · 简历质量 ${response.final_scoring.resume_quality_score} · 能力对齐 ${response.final_scoring.capability_alignment_score}`,
         `加分 ${response.final_scoring.credential_bonus} · 核心技能惩罚 ${response.final_scoring.core_skill_penalty} · 分数上限 ${response.final_scoring.score_cap}`,
       ])
     : null;
+
+  const capabilityAssessmentCard = createAdviceCard(
+    "岗位能力确认",
+    response.capability_assessments?.length
+      ? response.capability_assessments.map(
+          (item) =>
+            `${item.title}｜${proficiencyText(item.proficiency)}｜${item.evidence || "未补充额外证据"}`,
+        )
+      : ["本次未填写能力自评，能力对齐分仅依据简历与 JD。"],
+  );
 
   const normalizedJob = createAdviceCard(
     "JD 规范化",
@@ -1947,6 +2201,7 @@ function renderAiAdvice(response) {
   elements.aiAdviceContent.append(
     summary,
     ...(finalScoringCard ? [finalScoringCard] : []),
+    capabilityAssessmentCard,
     normalizedJob,
     requirements,
     rubric,
@@ -2276,30 +2531,32 @@ function bindEvents() {
       return;
     }
 
-    showLoading("正在计算关键词匹配度");
-    try {
-      updateProgress(24, "读取输入", "正在准备简历和岗位 JD");
-      await new Promise((resolve) => window.setTimeout(resolve, 320));
-      updateProgress(48, "规则分析", "正在识别岗位关键词和简历证据");
-      const result = await runAnalysis(resumeText, jobText);
-      if (state.apiAvailable && state.llmConfigured) {
-        updateProgress(62, "AI 综合分析", "正在计算语义、经历、简历质量和核心技能惩罚");
-        try {
-          const response = await generateAiAdvice(resumeText, jobText);
-          applyAiScoringToResult(result, response);
-        } catch (aiError) {
-          result.ai_error = aiError.message;
-          elements.runNote.textContent = "AI 分析超时或失败，已保留关键词初步结果";
-        }
-      }
-      updateProgress(90, "生成结果", "正在整理九步评分、缺口和建议");
-      renderResultPage(result);
-      await saveAnalysisHistory(resumeText, jobText, result);
-    } catch (error) {
-      updateProgress(100, "分析失败", error.message);
-      elements.runNote.textContent = error.message;
-      window.setTimeout(hideLoading, 900);
+    await prepareCapabilityReview(resumeText, jobText);
+  });
+
+  elements.confirmCapabilitiesButton.addEventListener("click", async () => {
+    if (!state.pendingAnalysis) {
+      showPage("analyze");
+      return;
     }
+    const assessments = collectCapabilityAssessments();
+    await completeAnalysis(
+      state.pendingAnalysis.resumeText,
+      state.pendingAnalysis.jobText,
+      assessments,
+    );
+  });
+
+  elements.skipCapabilitiesButton.addEventListener("click", async () => {
+    if (!state.pendingAnalysis) {
+      showPage("analyze");
+      return;
+    }
+    await completeAnalysis(
+      state.pendingAnalysis.resumeText,
+      state.pendingAnalysis.jobText,
+      [],
+    );
   });
 
   elements.loadSampleButton.addEventListener("click", () => {
@@ -2330,6 +2587,9 @@ function bindEvents() {
     state.lastResult = null;
     state.jdSources = [];
     state.jdTextEditedByUser = false;
+    state.capabilityDiscovery = null;
+    state.capabilityAssessments = [];
+    state.pendingAnalysis = null;
     renderEmptyResult();
     clearInputStatus("resume");
     clearInputStatus("jd");

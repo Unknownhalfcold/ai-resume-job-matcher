@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import json
+import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -31,6 +32,7 @@ from api.document_parser import DocumentParseError, extract_document_text, extra
 from api.llm_advisor import (
     LLMConfigurationError,
     calculate_final_score,
+    discover_job_capabilities,
     generate_advice,
     get_llm_analysis_contract,
     get_llm_config,
@@ -76,7 +78,27 @@ class AnalyzeRequest(StrictRequestModel):
         return self
 
 
+class CapabilityAssessmentRequest(StrictRequestModel):
+    title: str = Field(..., min_length=1, max_length=80)
+    category: str = Field(..., pattern=r"^(tool|professional|domain|language|soft)$")
+    importance: str = Field(..., pattern=r"^(must_have|important|nice_to_have)$")
+    weight: int = Field(..., ge=1, le=5)
+    proficiency: str = Field(..., pattern=r"^(unknown|none|basic|intermediate|advanced|expert)$")
+    evidence: str = Field(default="", max_length=500)
+
+
 class AISuggestionsRequest(AnalyzeRequest):
+    capability_assessments: list[CapabilityAssessmentRequest] = Field(default_factory=list, max_length=12)
+
+    @model_validator(mode="after")
+    def validate_capability_evidence_length(self) -> "AISuggestionsRequest":
+        evidence_length = sum(len(item.evidence) for item in self.capability_assessments)
+        if evidence_length > 3000:
+            raise ValueError("Capability evidence must not exceed 3000 characters in total.")
+        return self
+
+
+class CapabilityDiscoveryRequest(AnalyzeRequest):
     pass
 
 
@@ -363,10 +385,57 @@ def delete_history_record(
 
 @app.post("/api/analyze")
 def analyze_resume_job(payload: AnalyzeRequest) -> dict[str, Any]:
+    started_at = time.perf_counter()
     result = analyze(payload.resume, payload.job, keywords=KEYWORDS)
     return {
         "engine": "rule_based",
+        "timing": {
+            "rule_ms": round((time.perf_counter() - started_at) * 1000),
+        },
         **result,
+    }
+
+
+@app.post("/api/capabilities")
+def discover_capabilities(
+    payload: CapabilityDiscoveryRequest,
+    request: Request,
+    session: Session = Depends(get_database_session),
+) -> dict[str, Any]:
+    llm_config = get_llm_config()
+    with llm_request_slot() as started_at:
+        usage_event = enforce_rate_limit(
+            session,
+            request,
+            "capability_discovery",
+            len(payload.resume) + len(payload.job),
+        )
+        try:
+            discovery = run_llm_task(discover_job_capabilities, payload.resume, payload.job)
+        except LLMConfigurationError as exc:
+            complete_usage_event(session, usage_event, "configuration_error", started_at)
+            raise HTTPException(status_code=503, detail="站点 LLM 暂未配置，请稍后再试。") from exc
+        except Exception as exc:
+            is_timeout = "timeout" in exc.__class__.__name__.lower()
+            complete_usage_event(session, usage_event, "timeout" if is_timeout else "error", started_at)
+            if is_timeout:
+                raise HTTPException(
+                    status_code=504,
+                    detail=f"能力识别超过 {get_llm_request_timeout_seconds():.0f} 秒，请稍后再试。",
+                ) from exc
+            raise HTTPException(status_code=502, detail="岗位能力识别失败，请稍后再试。") from exc
+        llm_ms = round((time.perf_counter() - started_at) * 1000)
+        complete_usage_event(session, usage_event, "success", started_at)
+
+    return {
+        "engine": "llm_capability_discovery",
+        "provider": llm_config.provider,
+        "model": llm_config.model,
+        "thinking_mode": get_llm_metadata().get("llm_thinking_mode"),
+        "timing": {
+            "llm_ms": llm_ms,
+        },
+        **discovery,
     }
 
 
@@ -429,7 +498,10 @@ def normalize_job(
             status = "timeout" if is_timeout else "error"
             complete_usage_event(session, usage_event, status, started_at)
             if is_timeout:
-                raise HTTPException(status_code=504, detail="LLM 请求超过 28 秒，请稍后再试。") from exc
+                raise HTTPException(
+                    status_code=504,
+                    detail=f"LLM 请求超过 {get_llm_request_timeout_seconds():.0f} 秒，请稍后再试。",
+                ) from exc
             raise HTTPException(status_code=502, detail="LLM JD 整理失败，请稍后再试。") from exc
         complete_usage_event(session, usage_event, "success", started_at)
 
@@ -448,9 +520,13 @@ def ai_suggestions(
     request: Request,
     session: Session = Depends(get_database_session),
 ) -> dict[str, Any]:
+    total_started_at = time.perf_counter()
+    rule_started_at = time.perf_counter()
     analysis = analyze(payload.resume, payload.job, keywords=KEYWORDS)
+    rule_ms = round((time.perf_counter() - rule_started_at) * 1000)
     analysis["benchmark_context"] = find_hiring_benchmark(payload.job)
     llm_config = get_llm_config()
+    capability_assessments = [item.model_dump() for item in payload.capability_assessments]
     with llm_request_slot() as started_at:
         usage_event = enforce_rate_limit(
             session,
@@ -459,7 +535,13 @@ def ai_suggestions(
             len(payload.resume) + len(payload.job),
         )
         try:
-            advice = run_llm_task(generate_advice, payload.resume, payload.job, analysis)
+            advice = run_llm_task(
+                generate_advice,
+                payload.resume,
+                payload.job,
+                analysis,
+                capability_assessments,
+            )
         except LLMConfigurationError as exc:
             complete_usage_event(session, usage_event, "configuration_error", started_at)
             raise HTTPException(status_code=503, detail="站点 LLM 暂未配置，请稍后再试。") from exc
@@ -468,8 +550,12 @@ def ai_suggestions(
             status = "timeout" if is_timeout else "error"
             complete_usage_event(session, usage_event, status, started_at)
             if is_timeout:
-                raise HTTPException(status_code=504, detail="LLM 请求超过 28 秒，请稍后再试。") from exc
+                raise HTTPException(
+                    status_code=504,
+                    detail=f"LLM 请求超过 {get_llm_request_timeout_seconds():.0f} 秒，请稍后再试。",
+                ) from exc
             raise HTTPException(status_code=502, detail="AI 建议生成失败，请稍后再试。") from exc
+        llm_ms = round((time.perf_counter() - started_at) * 1000)
         complete_usage_event(session, usage_event, "success", started_at)
 
     return {
@@ -477,9 +563,20 @@ def ai_suggestions(
         "provider": llm_config.provider,
         "model": llm_config.model,
         "api_style": llm_config.api_style,
+        "thinking_mode": get_llm_metadata().get("llm_thinking_mode"),
         "rule_score": analysis.get("score"),
         "rule_score_source": "keyword_weight_formula",
-        "final_scoring": calculate_final_score(analysis.get("score"), advice),
+        "capability_assessments": capability_assessments,
+        "final_scoring": calculate_final_score(
+            analysis.get("score"),
+            advice,
+            capability_assessments,
+        ),
         "analysis_contract": get_llm_analysis_contract(),
+        "timing": {
+            "rule_ms": rule_ms,
+            "llm_ms": llm_ms,
+            "total_ms": round((time.perf_counter() - total_started_at) * 1000),
+        },
         "advice": advice,
     }

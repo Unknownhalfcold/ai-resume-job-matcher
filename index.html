@@ -49,7 +49,7 @@
           </div>
 
           <div class="version-strip" aria-label="版本状态">
-            <span>v0.8</span>
+            <span>v0.9</span>
             <span id="runtime-status">Connecting API</span>
           </div>
         </div>
@@ -132,15 +132,60 @@
         </div>
       </section>
 
+      <section class="page-view workspace capability-page" id="capabilities" data-view="capabilities" aria-labelledby="capability-check-title" hidden>
+        <button class="page-back" type="button" data-page-link="analyze" aria-label="返回修改简历与岗位">← 返回修改</button>
+
+        <section class="result-panel capability-panel" aria-labelledby="capability-check-title">
+          <div class="command-bar result-command-bar">
+            <div class="command-title">
+              <p class="eyebrow">Step 3</p>
+              <h2 id="capability-check-title">确认岗位能力</h2>
+              <p>AI 已从 JD 的明确要求和岗位职责中提取能力。请确认你的真实熟练度；没有证据的自评只按有限可信度计分。</p>
+            </div>
+            <div class="tool-group action-tools">
+              <button class="button secondary" id="skip-capabilities" type="button">跳过自评</button>
+              <button class="button primary" id="confirm-capabilities" type="button">确认并生成结果</button>
+            </div>
+          </div>
+
+          <div class="capability-summary">
+            <div>
+              <span>目标岗位</span>
+              <strong id="capability-role">等待识别</strong>
+            </div>
+            <div>
+              <span>能力数量</span>
+              <strong id="capability-count">0</strong>
+            </div>
+            <div>
+              <span>识别方式</span>
+              <strong id="capability-engine">LLM + JD</strong>
+            </div>
+          </div>
+
+          <p class="capability-note" id="capability-note">能力表生成后会显示在这里。</p>
+          <div class="capability-table" role="table" aria-label="岗位能力自评表">
+            <div class="capability-table-head" role="row">
+              <span role="columnheader">岗位能力</span>
+              <span role="columnheader">JD 依据</span>
+              <span role="columnheader">简历证据</span>
+              <span role="columnheader">你的熟练度</span>
+              <span role="columnheader">补充证据</span>
+            </div>
+            <div id="capability-rows"></div>
+          </div>
+        </section>
+      </section>
+
       <section class="page-view workspace result-page" id="result" data-view="result" aria-labelledby="result-title" hidden>
         <button class="page-back" id="edit-inputs" type="button" aria-label="返回修改">← 返回修改</button>
 
         <section class="result-panel" aria-labelledby="result-title">
           <div class="command-bar result-command-bar">
             <div class="command-title">
-              <p class="eyebrow">Step 3</p>
+              <p class="eyebrow">Step 4</p>
               <h2 id="result-title">分析结果</h2>
-              <p>关键词、语义、经历与简历质量共同形成可解释的综合分数。</p>
+              <p>关键词、语义、经历、简历质量与能力确认共同形成可解释的综合分数。</p>
             </div>
             <div class="tool-group action-tools">
               <button class="button secondary" id="analyze-another-job" type="button">匹配其他 JD</button>
@@ -343,6 +388,6 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="assets/config.js?v=2"></script>
-    <script src="assets/app.js?v=18"></script>
+    <script src="assets/app.js?v=19"></script>
   </body>
 </html>

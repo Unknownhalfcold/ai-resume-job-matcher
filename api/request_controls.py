@@ -26,6 +26,7 @@ EPHEMERAL_RATE_LIMIT_SALT = secrets.token_bytes(32)
 
 RATE_LIMITS = {
     "normalize_job": {"minute": 5, "day": 30},
+    "capability_discovery": {"minute": 3, "day": 20},
     "ai_suggestions": {"minute": 3, "day": 20},
 }
 

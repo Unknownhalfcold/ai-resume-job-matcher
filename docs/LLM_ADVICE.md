@@ -2,13 +2,13 @@
 
 ## 目标
 
-LLM 建议层用于理解语义、经历深度和简历质量；后端函数统一计算最终分。
+LLM 建议层用于理解语义、经历深度、简历质量和岗位能力对齐；后端函数统一计算最终分。
 
 当前项目采用：
 
 ```text
 规则层负责关键词覆盖
-LLM 层负责语义、经历、质量和个性化建议
+LLM 层负责岗位能力提取、语义、经历、质量、能力对齐和个性化建议
 后端负责加权、惩罚和分数上限
 ```
 
@@ -20,14 +20,14 @@ LLM 层负责语义、经历、质量和个性化建议
 
 对兼容 Chat Completions 的第三方模型，模型先返回精简的评分证据、岗位要求和优先动作，后端再确定性地补齐 Gap、评分口径、网申边界和结果页结构。这样可以减少延迟和 JSON 截断，同时不把最终分数交给模型。
 
-当服务端使用 DeepSeek 时，后端会显式关闭 thinking mode。评分接口需要稳定、快速地返回结构化 JSON，不需要额外的长链路推理；最终分数仍由后端的确定性公式、惩罚函数和分数上限规则计算。
+当服务端使用 DeepSeek 时，thinking mode 由 `LLM_THINKING_MODE` 控制，当前默认使用 `enabled`。这是服务端环境变量，前端用户不能修改。后续应使用同一批人工标注样本比较 enabled / disabled 的准确率、评分波动和耗时，再决定是否关闭。
 
 到岗天数、实习时长、期望薪资、工作地点和身份类网申字段会保留为申请提醒，但不会进入核心技能惩罚或分数上限计算。规则层还会使用包含关系连接关键词和 LLM 要求，例如已匹配 `Excel` 时，可视为“高级 Excel 技能”已有基础证据。
 
 固定边界：
 
 - `rule_score` 是可复现的关键词分，不是最终总分。
-- LLM 只输出 `semantic_match_score`、`experience_match_score` 和 `resume_quality_score` 三个 0-100 分项。
+- LLM 输出 `semantic_match_score`、`experience_match_score`、`resume_quality_score` 和 `capability_alignment_score` 四个 0-100 分项。
 - 最终分由后端固定函数计算，LLM 不得自行输出或覆盖。
 - `importance` 只允许 `must_have`、`important`、`nice_to_have`。
 - `weight` 使用 1-5，表示岗位要求的重要程度。
@@ -41,7 +41,7 @@ LLM 层负责语义、经历、质量和个性化建议
 输出会包含：
 
 - `normalized_job`：规范化后的岗位标题、职责、岗位要求和重要程度。
-- `score_assessment`：语义、经历和简历质量三个受限分项及理由。
+- `score_assessment`：语义、经历、简历质量和能力对齐四个受限分项及理由。
 - `normalized_job.technical_questions`：JD 中出现的技术性问题及其考察能力。
 - `scoring_rubric`：LLM 对岗位能力维度的解释口径。
 - `evidence_review`：简历对每个要求的证据强度。
@@ -58,18 +58,32 @@ LLM 层负责语义、经历、质量和个性化建议
 
 LLM 适合理解语义、总结原因和生成表达建议，但它的输出可能受到提示词、模型版本和上下文细节影响。
 
-为了让匹配度分数稳定，当前使用固定九步流程：
+为了让匹配度分数稳定，当前使用固定十步流程：
 
 ```text
-关键词 → 语义 → 经历 → 简历质量 → 加分项
+关键词 → 语义 → 经历 → 简历质量 → 能力对齐 → 加分项
 → 加权基础分 → 核心技能惩罚 → 分数上限 → 最终分
 ```
 
 加权基础分：
 
 ```text
-关键词 25% + 语义 30% + 经历 30% + 简历质量 15%
+关键词 20% + 语义 25% + 经历 25% + 简历质量 15% + 能力对齐 15%
 ```
+
+## 岗位能力确认
+
+`POST /api/capabilities` 会先从 JD 提取 4-10 项有区分度的岗位能力：
+
+- `tool`：Python、Excel、PowerPoint、CAD、实验设备和软件平台。
+- `professional`：专业方法，例如财务建模、教学设计、用户研究、病例分析。
+- `domain`：行业、法规或学科领域知识。
+- `language`：外语或专业语言能力。
+- `soft`：沟通、协作、领导、抗压等软性能力。
+
+模型会区分 JD 明确写出的 `explicit` 条件和从岗位职责直接推导的 `inferred` 条件。隐性条件必须有职责依据，不能凭模型常识随意添加。
+
+用户确认熟练度后，前端把能力名称、类别、重要程度、熟练度和最多 500 字的补充证据发送到 `/api/ai-suggestions`。自评不会覆盖简历事实；没有证据时只按有限可信度进入能力对齐分。
 
 ## 软性要求保护规则
 
@@ -137,11 +151,21 @@ POST /api/ai-suggestions
 ```json
 {
   "resume": "简历文本",
-  "job": "岗位 JD 文本"
+  "job": "岗位 JD 文本",
+  "capability_assessments": [
+    {
+      "title": "Excel",
+      "category": "tool",
+      "importance": "must_have",
+      "weight": 5,
+      "proficiency": "advanced",
+      "evidence": "使用数据透视表和估值模型完成行业研究分析"
+    }
+  ]
 }
 ```
 
-接口拒绝额外字段。用户不能传入 `api_key`、`base_url`、模型名或前端计算的分析结果；后端会自行运行规则层并从服务器环境变量读取 LLM 配置。
+接口拒绝其他额外字段。用户不能传入 `api_key`、`base_url`、模型名或前端计算的分数；后端会自行运行规则层并从服务器环境变量读取 LLM 配置。
 
 ## JD OCR 清洗接口
 
@@ -246,6 +270,7 @@ $env:LLM_API_STYLE="chat_completions"
 $env:LLM_BASE_URL="https://api.deepseek.com"
 $env:LLM_API_KEY="你的 DeepSeek API Key"
 $env:LLM_MODEL="deepseek-v4-flash"
+$env:LLM_THINKING_MODE="enabled"
 .\.venv\Scripts\python.exe -m uvicorn api.server:app --reload --port 8001
 ```
 

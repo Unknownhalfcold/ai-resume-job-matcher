@@ -4,7 +4,7 @@
 
 API MVP 用于跑通前后端通信链路。
 
-当前后端同时提供关键词初步分析和九步 LLM 综合分析。API Key、Base URL 和模型配置只从后端环境变量读取；未配置 `LLM_API_KEY` 或 `OPENAI_API_KEY` 时，关键词分析接口照常可用，LLM 接口会提示未配置。
+当前后端同时提供关键词初步分析、岗位能力提取和十步 LLM 综合分析。API Key、Base URL 和模型配置只从后端环境变量读取；未配置 `LLM_API_KEY` 或 `OPENAI_API_KEY` 时，关键词分析接口照常可用，LLM 接口会提示未配置。
 
 ## 架构
 
@@ -165,6 +165,14 @@ POST /api/extract/resume
 
 ## LLM 建议接口
 
+岗位能力提取接口：
+
+```text
+POST /api/capabilities
+```
+
+请求包含 `resume` 和 `job`，返回 JD 显性与隐性能力、分类、重要程度、JD 依据、简历证据和预判熟练度。它不会返回最终分数。
+
 接口：
 
 ```text
@@ -192,16 +200,29 @@ $env:LLM_MODEL="deepseek-v4-flash"
 ```json
 {
   "resume": "简历文本",
-  "job": "岗位 JD 文本"
+  "job": "岗位 JD 文本",
+  "capability_assessments": [
+    {
+      "title": "Python",
+      "category": "tool",
+      "importance": "important",
+      "weight": 4,
+      "proficiency": "intermediate",
+      "evidence": "使用 Python 完成数据清洗和自动化报表"
+    }
+  ]
 }
 ```
 
-接口只接受 `resume` 和 `job`。`api_key`、`base_url`、`llm_config` 和前端传入的分析结果会被拒绝；模型配置只从后端环境变量读取。
+接口只接受 `resume`、`job` 和受限的 `capability_assessments`。`api_key`、`base_url`、`llm_config` 和前端传入的分数会被拒绝；模型配置只从后端环境变量读取。
 
 返回内容包括：
 
 - `rule_score`
 - `rule_score_source`
+- `final_scoring`
+- `capability_assessments`
+- `timing`
 - `advice.summary`
 - `advice.normalized_job`
 - `advice.scoring_rubric`

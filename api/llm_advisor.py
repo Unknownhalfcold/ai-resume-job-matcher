@@ -11,10 +11,11 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 DEFAULT_LLM_MODEL = "gpt-5.5"
 DEFAULT_MAX_OUTPUT_TOKENS = 2000
-MAX_LLM_TIMEOUT_SECONDS = 28
+MAX_LLM_TIMEOUT_SECONDS = 90
 MAX_JOB_OCR_CANDIDATE_CHARS = 16000
 
 APIStyle = Literal["responses", "chat_completions"]
+ProficiencyLevel = Literal["unknown", "none", "basic", "intermediate", "advanced", "expert"]
 
 LLM_ANALYSIS_CONTRACT: dict[str, Any] = {
     "final_score_policy": (
@@ -36,8 +37,9 @@ LLM_ANALYSIS_CONTRACT: dict[str, Any] = {
         "nice_to_have with weight 1-2, do not mark them as high-impact gaps, and do not let them affect rule_score."
     ),
     "final_score_formula": (
-        "The backend calculates 25% keyword match, 30% semantic match, 30% experience match, "
-        "15% resume quality, up to 5 bonus points, core-skill penalties, and deterministic score caps."
+        "The backend calculates 20% keyword match, 25% semantic match, 25% experience match, "
+        "15% resume quality, 15% capability alignment, up to 5 bonus points, core-skill penalties, "
+        "and deterministic score caps."
     ),
     "company_context_policy": (
         "Company name, company scale, and historical hiring context may only be used when explicitly present in "
@@ -108,9 +110,11 @@ class ScoreAssessment(BaseModel):
     semantic_match_score: int = Field(ge=0, le=100)
     experience_match_score: int = Field(ge=0, le=100)
     resume_quality_score: int = Field(ge=0, le=100)
+    capability_alignment_score: int = Field(default=0, ge=0, le=100)
     semantic_reason: str
     experience_reason: str
     quality_reason: str
+    capability_reason: str = ""
 
 
 class EvidenceReviewItem(BaseModel):
@@ -237,6 +241,29 @@ class FastAdvicePayload(BaseModel):
     first_screen_strengths: list[str] = Field(default_factory=list, max_length=4)
     first_screen_concerns: list[str] = Field(default_factory=list, max_length=4)
     likely_interview_questions: list[str] = Field(default_factory=list, max_length=4)
+
+
+class CapabilityDiscoveryItem(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    title: str = Field(min_length=1, max_length=80)
+    category: Literal["tool", "professional", "domain", "language", "soft"]
+    source: Literal["explicit", "inferred"]
+    importance: Literal["must_have", "important", "nice_to_have"]
+    weight: int = Field(ge=1, le=5)
+    jd_evidence: str = Field(max_length=240)
+    resume_evidence: str = Field(default="", max_length=240)
+    inferred_proficiency: ProficiencyLevel = "unknown"
+    confidence: int = Field(default=50, ge=0, le=100)
+    assessment_prompt: str = Field(default="", max_length=160)
+
+
+class CapabilityDiscoveryPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    role_title: str = Field(default="", max_length=120)
+    capabilities: list[CapabilityDiscoveryItem] = Field(min_length=3, max_length=12)
+    note: str = Field(default="", max_length=300)
 
 
 class BenchmarkComparison(BaseModel):
@@ -415,17 +442,21 @@ ADVICE_SCHEMA: dict[str, Any] = {
                 "semantic_match_score",
                 "experience_match_score",
                 "resume_quality_score",
+                "capability_alignment_score",
                 "semantic_reason",
                 "experience_reason",
                 "quality_reason",
+                "capability_reason",
             ],
             "properties": {
                 "semantic_match_score": {"type": "integer", "minimum": 0, "maximum": 100},
                 "experience_match_score": {"type": "integer", "minimum": 0, "maximum": 100},
                 "resume_quality_score": {"type": "integer", "minimum": 0, "maximum": 100},
+                "capability_alignment_score": {"type": "integer", "minimum": 0, "maximum": 100},
                 "semantic_reason": {"type": "string"},
                 "experience_reason": {"type": "string"},
                 "quality_reason": {"type": "string"},
+                "capability_reason": {"type": "string"},
             },
         },
         "scoring_rubric": {
@@ -770,7 +801,7 @@ SYSTEM_INSTRUCTIONS = """
 3. 如果 JD 中包含技术性问题或问答题，将它们单独放入 technical_questions，并说明考察能力和期望简历证据。
 4. 对简历证据进行量化：evidence_score 为 0-100，confidence 为 0-100。
 5. 对 gap evidence 进行量化：gap_score 为 0-100，分数越高表示缺口越严重。
-6. 输出 semantic_match_score、experience_match_score、resume_quality_score 三个 0-100 分项；不要直接输出最终总分。
+6. 输出 semantic_match_score、experience_match_score、resume_quality_score、capability_alignment_score 四个 0-100 分项；不要直接输出最终总分。
 7. 不要编造用户没有提供的经历、公司、数字、证书或结果。
 8. 如果简历缺少证据，请明确指出“需要补充”，不要替用户虚构。
 9. 对“沟通能力、团队协作、责任心、抗压能力、学习能力、执行力”等软性要求要降权处理。
@@ -784,12 +815,14 @@ SYSTEM_INSTRUCTIONS = """
 17. 建议要具体、直接、尖锐但不羞辱用户。指出可能导致 HR 淘汰的真实问题，并给出可执行的修正动作。
 18. 不要因用户专业名称与岗位名称不同就直接判定不匹配；应寻找课程、项目、研究、实习和成果中的可迁移证据。
 19. 所有原因、建议和示例保持精炼，每项优先使用一句话完成，不重复解释同一个结论。
+20. 用户能力自评只能作为补充证据，不能覆盖简历事实；只有自评但没有简历或补充说明支撑时，capability_alignment_score 不得超过 60。
 
 评分稳定性原则：
 - 关键词层负责可复现的显性覆盖分。
-- LLM 只输出语义、经历和简历质量三个受限分项，并解释依据。
+- LLM 输出语义、经历、简历质量和能力对齐四个受限分项，并解释依据。
 - 后端统一执行加权公式、加分、核心技能惩罚和分数上限，LLM 不得自行给最终总分。
 - 语义分看“能力是否等价”，经历分看“经历深度、职责相似度和成果证据”，质量分看“结构、清晰度、量化程度和可信表达”。
+- 能力对齐分综合 JD 显性要求、职责隐含条件、简历证据和用户自评；自评与简历冲突时以可验证证据为准。
 - 经历分重点检查任务相似度、复杂度、责任范围、成果证据和岗位阶段；未提供时长或数字时不得猜测。
 - 学历和院校层次只有在 JD 明确要求，或后端提供了有来源的匿名聚合基准时才能影响分析；不得把学校标签当作能力本身。
 
@@ -860,6 +893,27 @@ cleaned_job_text 格式：
 - 加分项来自“优先、加分、Bonus、Preferred、Nice to have”等部分。
 - 软性要求可以保留在“岗位要求”里，但不要把泛泛的沟通、协作、责任心、抗压能力写成核心技能要求。
 - 如果原文只有职责或只有要求，可以只输出存在的部分，但不要把要求合并成网页噪音。
+""".strip()
+
+CAPABILITY_DISCOVERY_INSTRUCTIONS = """
+你是一名严谨的招聘能力分析助手。请从岗位 JD 中提取候选人需要确认的岗位能力，并结合简历预判已有证据。
+
+分类口径：
+- tool：Python、Excel、PowerPoint、CAD、实验设备、软件平台等工具技能。
+- professional：财务建模、用户研究、教学设计、病例分析、结构设计等专业方法。
+- domain：行业知识、法规、学科理论、产品或业务领域知识。
+- language：外语或专业语言能力。
+- soft：沟通、协作、领导、抗压、学习能力等软性能力。
+
+提取规则：
+1. 同时识别 JD 明确写出的 explicit 能力，以及能从岗位职责直接推导出的 inferred 隐性条件。
+2. 隐性条件必须有明确职责依据，不得凭空补充常见要求。
+3. Python、Excel、PowerPoint 等属于 tool，不属于 soft。
+4. 泛泛的沟通、责任心、抗压等软性能力只能设为 nice_to_have、权重 1-2；有可验证的跨部门推动、管理或交付职责时才能提高。
+5. 到岗时间、薪资、地点、身份信息不是岗位能力，不要输出。
+6. inferred_proficiency 只依据简历证据填写；证据不足时为 unknown，不得猜测。
+7. 输出 4-10 项最有区分度的能力，避免同义重复。
+8. 只返回 JSON，不输出 Markdown。
 """.strip()
 
 
@@ -938,6 +992,7 @@ def get_llm_metadata() -> dict[str, Any]:
         "llm_model": config.model,
         "llm_api_style": config.api_style,
         "llm_timeout_seconds": get_llm_request_timeout_seconds(),
+        "llm_thinking_mode": (os.getenv("LLM_THINKING_MODE") or "enabled").strip().lower(),
     }
 
 
@@ -1009,7 +1064,12 @@ def build_job_ocr_candidate(raw_text: str) -> str:
     return "\n".join(kept)
 
 
-def build_advice_input(resume_text: str, job_text: str, analysis: dict[str, Any]) -> str:
+def build_advice_input(
+    resume_text: str,
+    job_text: str,
+    analysis: dict[str, Any],
+    capability_assessments: list[dict[str, Any]] | None = None,
+) -> str:
     benchmark_context = analysis.get("benchmark_context")
     compact_analysis = {
         "rule_score": analysis.get("score"),
@@ -1039,6 +1099,10 @@ def build_advice_input(resume_text: str, job_text: str, analysis: dict[str, Any]
             resume_text,
             "【规则匹配结果】",
             json.dumps(compact_analysis, ensure_ascii=False, indent=2),
+            "【用户确认的岗位能力自评】",
+            json.dumps(capability_assessments or [], ensure_ascii=False, indent=2)
+            if capability_assessments
+            else "用户未提供能力自评，只能依据简历和 JD。",
             "【有来源的匿名录用背景基准】",
             json.dumps(benchmark_context, ensure_ascii=False, indent=2)
             if benchmark_context
@@ -1047,10 +1111,15 @@ def build_advice_input(resume_text: str, job_text: str, analysis: dict[str, Any]
     )
 
 
-def build_chat_prompt(resume_text: str, job_text: str, analysis: dict[str, Any]) -> str:
+def build_chat_prompt(
+    resume_text: str,
+    job_text: str,
+    analysis: dict[str, Any],
+    capability_assessments: list[dict[str, Any]] | None = None,
+) -> str:
     return "\n\n".join(
         [
-            build_advice_input(resume_text, job_text, analysis),
+            build_advice_input(resume_text, job_text, analysis, capability_assessments),
             "请只返回 JSON 对象，不要使用 Markdown，不要包裹 ```json 代码块。",
             (
                 "为了降低延迟，只返回这些顶层字段：summary、role_title、jd_summary、"
@@ -1067,11 +1136,34 @@ def build_chat_prompt(resume_text: str, job_text: str, analysis: dict[str, Any])
                 "嵌套字段：requirements[{title,category,importance,weight,evidence_expected}]; "
                 "technical_questions[{question,skill_area,expected_evidence}]; "
                 "score_assessment={semantic_match_score,experience_match_score,resume_quality_score,"
-                "semantic_reason,experience_reason,quality_reason}; "
+                "capability_alignment_score,semantic_reason,experience_reason,quality_reason,capability_reason}; "
                 "evidence_review[{title,importance,level,evidence_score,confidence,resume_evidence,gap}]; "
                 "top_actions[{priority,action,target_section,example}]; "
                 "credential_review[{name,credential_type,relevance_score,credibility,score_bonus,rationale}]。"
             ),
+        ]
+    )
+
+
+def build_capability_discovery_prompt(resume_text: str, job_text: str) -> str:
+    return "\n\n".join(
+        [
+            "【岗位 JD】",
+            job_text,
+            "【简历文本】",
+            resume_text,
+            (
+                "返回 JSON：{role_title, capabilities, note}。"
+                "capabilities 每项必须包含 title、category、source、importance、weight、jd_evidence、"
+                "resume_evidence、inferred_proficiency、confidence、assessment_prompt。"
+            ),
+            (
+                "category 只能是 tool/professional/domain/language/soft；source 只能是 explicit/inferred；"
+                "importance 只能是 must_have/important/nice_to_have；"
+                "inferred_proficiency 只能是 unknown/none/basic/intermediate/advanced/expert。"
+            ),
+            "assessment_prompt 用一句话提示用户应补充什么事实来证明熟练度。",
+            "只返回 JSON 对象。",
         ]
     )
 
@@ -1128,10 +1220,11 @@ def get_chat_completion_options(config: LLMConfig) -> dict[str, Any]:
     provider = config.provider.strip().lower()
     base_url = (config.base_url or "").lower()
     if provider == "deepseek" or "deepseek.com" in base_url:
+        thinking_mode = (os.getenv("LLM_THINKING_MODE") or "enabled").strip().lower()
         return {
             "extra_body": {
                 "thinking": {
-                    "type": "disabled",
+                    "type": "disabled" if thinking_mode in {"disabled", "off", "false", "0"} else "enabled",
                 }
             }
         }
@@ -1207,6 +1300,32 @@ def parse_json_object(raw_text: str) -> dict[str, Any]:
             return repaired
 
         raise LLMResponseError(f"Model did not return valid JSON: {exc}") from exc
+
+
+def validate_capability_discovery(raw_payload: dict[str, Any]) -> dict[str, Any]:
+    try:
+        payload = CapabilityDiscoveryPayload.model_validate(raw_payload).model_dump()
+    except ValidationError as exc:
+        raise LLMResponseError(f"Model returned invalid capability JSON: {exc}") from exc
+
+    unique_capabilities: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in payload["capabilities"]:
+        normalized_title = normalize_requirement_match_text(item["title"])
+        if not normalized_title or normalized_title in seen:
+            continue
+        if is_application_only_requirement(item["title"], item["category"]):
+            continue
+        if item["category"] == "soft" and item["importance"] == "must_have":
+            item["importance"] = "nice_to_have"
+            item["weight"] = min(item["weight"], 2)
+        seen.add(normalized_title)
+        unique_capabilities.append(item)
+
+    if len(unique_capabilities) < 3:
+        raise LLMResponseError("Model returned too few useful capabilities.")
+    payload["capabilities"] = unique_capabilities[:10]
+    return payload
 
 
 def validate_advice(raw_advice: dict[str, Any]) -> dict[str, Any]:
@@ -1378,9 +1497,11 @@ def expand_fast_advice(
             "semantic_match_score": keyword_score,
             "experience_match_score": max(0, keyword_score - 10),
             "resume_quality_score": 60,
+            "capability_alignment_score": keyword_score,
             "semantic_reason": "模型未返回完整分项，采用关键词证据的保守回退值。",
             "experience_reason": "模型未返回完整经历分，采用保守回退值。",
             "quality_reason": "模型未返回完整质量分，使用中性基准值。",
+            "capability_reason": "模型未返回完整能力对齐分，采用关键词证据的保守回退值。",
         }
 
     responsibilities = [
@@ -1619,7 +1740,53 @@ def is_application_only_requirement(title: Any, category: Any = "") -> bool:
     return bool(APPLICATION_ONLY_REQUIREMENT_PATTERN.search(text))
 
 
-def calculate_final_score(keyword_score: int | float | None, advice: Mapping[str, Any]) -> dict[str, Any]:
+PROFICIENCY_SCORES = {
+    "unknown": 0,
+    "none": 0,
+    "basic": 35,
+    "intermediate": 60,
+    "advanced": 80,
+    "expert": 95,
+}
+
+
+def calculate_capability_profile_score(
+    capability_assessments: list[Mapping[str, Any]] | None,
+) -> dict[str, Any]:
+    if not capability_assessments:
+        return {"score": None, "answered": 0, "evidence_backed": 0}
+
+    weighted_total = 0
+    weight_total = 0
+    evidence_backed = 0
+    answered = 0
+    for item in capability_assessments:
+        proficiency = str(item.get("proficiency") or "unknown")
+        if proficiency == "unknown":
+            continue
+        score = PROFICIENCY_SCORES.get(proficiency, 0)
+        answered += 1
+        evidence = str(item.get("evidence") or "").strip()
+        if not evidence:
+            score = min(score, 60)
+        else:
+            evidence_backed += 1
+        weight = max(1, min(5, int(item.get("weight") or 3)))
+        weighted_total += score * weight
+        weight_total += weight
+
+    return {
+        "score": round(weighted_total / weight_total) if weight_total else None,
+        "answered": answered,
+        "evidence_backed": evidence_backed,
+    }
+
+
+def calculate_final_score(
+    keyword_score: int | float | None,
+    advice: Mapping[str, Any],
+    capability_assessments: list[Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
     keyword_match_score = clamp_score(keyword_score)
     assessment = advice.get("score_assessment")
     if not isinstance(assessment, Mapping):
@@ -1627,6 +1794,14 @@ def calculate_final_score(keyword_score: int | float | None, advice: Mapping[str
     semantic_match_score = clamp_score(assessment.get("semantic_match_score"))
     experience_match_score = clamp_score(assessment.get("experience_match_score"))
     resume_quality_score = clamp_score(assessment.get("resume_quality_score"))
+    llm_capability_score = clamp_score(assessment.get("capability_alignment_score"))
+    capability_profile = calculate_capability_profile_score(capability_assessments)
+    declared_capability_score = capability_profile["score"]
+    capability_alignment_score = (
+        round(llm_capability_score * 0.7 + int(declared_capability_score) * 0.3)
+        if declared_capability_score is not None
+        else llm_capability_score
+    )
 
     credential_bonus = 0
     credential_items = advice.get("credential_review")
@@ -1642,10 +1817,11 @@ def calculate_final_score(keyword_score: int | float | None, advice: Mapping[str
     credential_bonus = min(5, credential_bonus)
 
     weighted_base = (
-        keyword_match_score * 0.25
-        + semantic_match_score * 0.30
-        + experience_match_score * 0.30
+        keyword_match_score * 0.20
+        + semantic_match_score * 0.25
+        + experience_match_score * 0.25
         + resume_quality_score * 0.15
+        + capability_alignment_score * 0.15
     )
     evidence_by_title: dict[str, Mapping[str, Any]] = {}
     for item in advice.get("evidence_review") or []:
@@ -1656,6 +1832,11 @@ def calculate_final_score(keyword_score: int | float | None, advice: Mapping[str
     core_penalty = 0
     normalized_job = advice.get("normalized_job")
     requirements = normalized_job.get("requirements") if isinstance(normalized_job, Mapping) else []
+    capability_by_title = {
+        normalize_requirement_match_text(item.get("title")): item
+        for item in capability_assessments or []
+        if isinstance(item, Mapping)
+    }
     for requirement in requirements or []:
         if not isinstance(requirement, Mapping) or requirement.get("importance") != "must_have":
             continue
@@ -1665,6 +1846,19 @@ def calculate_final_score(keyword_score: int | float | None, advice: Mapping[str
         evidence = evidence_by_title.get(title.lower(), {})
         evidence_score = clamp_score(evidence.get("evidence_score"))
         level = str(evidence.get("level") or "missing")
+        declared = next(
+            (
+                item
+                for item_title, item in capability_by_title.items()
+                if requirement_title_matches_keyword(title, item_title)
+            ),
+            None,
+        )
+        if declared and str(declared.get("evidence") or "").strip():
+            declared_score = PROFICIENCY_SCORES.get(str(declared.get("proficiency") or "unknown"), 0)
+            evidence_score = max(evidence_score, round(declared_score * 0.7))
+            if evidence_score >= 40:
+                level = "weak" if evidence_score < 60 else "medium"
         if level == "missing" or evidence_score < 40:
             missing_core_requirements.append(title or "未命名核心要求")
             requirement_weight = max(1, min(5, int(requirement.get("weight") or 5)))
@@ -1695,6 +1889,10 @@ def calculate_final_score(keyword_score: int | float | None, advice: Mapping[str
         "semantic_match_score": semantic_match_score,
         "experience_match_score": experience_match_score,
         "resume_quality_score": resume_quality_score,
+        "capability_alignment_score": capability_alignment_score,
+        "llm_capability_score": llm_capability_score,
+        "declared_capability_score": declared_capability_score,
+        "capability_evidence_count": capability_profile["evidence_backed"],
         "weighted_base": round(weighted_base, 1),
         "credential_bonus": credential_bonus,
         "core_skill_penalty": core_penalty,
@@ -1703,7 +1901,7 @@ def calculate_final_score(keyword_score: int | float | None, advice: Mapping[str
         "score_cap": score_cap,
         "cap_reasons": cap_reasons,
         "formula": (
-            "关键词 25% + 语义 30% + 经历 30% + 简历质量 15% "
+            "关键词 20% + 语义 25% + 经历 25% + 简历质量 15% + 能力对齐 15% "
             "+ 加分项 - 核心技能惩罚，再应用分数上限"
         ),
         "steps": [
@@ -1711,11 +1909,12 @@ def calculate_final_score(keyword_score: int | float | None, advice: Mapping[str
             {"step": 2, "title": "语义匹配", "value": semantic_match_score},
             {"step": 3, "title": "经历匹配", "value": experience_match_score},
             {"step": 4, "title": "简历质量", "value": resume_quality_score},
-            {"step": 5, "title": "加分项", "value": credential_bonus},
-            {"step": 6, "title": "加权基础分", "value": round(weighted_base, 1)},
-            {"step": 7, "title": "核心技能惩罚", "value": -core_penalty},
-            {"step": 8, "title": "分数上限", "value": score_cap},
-            {"step": 9, "title": "最终分数", "value": final_score},
+            {"step": 5, "title": "能力对齐", "value": capability_alignment_score},
+            {"step": 6, "title": "加分项", "value": credential_bonus},
+            {"step": 7, "title": "加权基础分", "value": round(weighted_base, 1)},
+            {"step": 8, "title": "核心技能惩罚", "value": -core_penalty},
+            {"step": 9, "title": "分数上限", "value": score_cap},
+            {"step": 10, "title": "最终分数", "value": final_score},
         ],
     }
 
@@ -1726,6 +1925,7 @@ def generate_with_responses_api(
     resume_text: str,
     job_text: str,
     analysis: dict[str, Any],
+    capability_assessments: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     response = client.responses.create(
         model=config.model,
@@ -1736,7 +1936,12 @@ def generate_with_responses_api(
                 "content": [
                     {
                         "type": "input_text",
-                        "text": build_advice_input(resume_text, job_text, analysis),
+                        "text": build_advice_input(
+                            resume_text,
+                            job_text,
+                            analysis,
+                            capability_assessments,
+                        ),
                     }
                 ],
             }
@@ -1761,12 +1966,21 @@ def generate_with_chat_completions(
     resume_text: str,
     job_text: str,
     analysis: dict[str, Any],
+    capability_assessments: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     response = client.chat.completions.create(
         model=config.model,
         messages=[
             {"role": "system", "content": SYSTEM_INSTRUCTIONS},
-            {"role": "user", "content": build_chat_prompt(resume_text, job_text, analysis)},
+            {
+                "role": "user",
+                "content": build_chat_prompt(
+                    resume_text,
+                    job_text,
+                    analysis,
+                    capability_assessments,
+                ),
+            },
         ],
         response_format={"type": "json_object"},
         temperature=config.temperature,
@@ -1795,7 +2009,12 @@ def generate_with_chat_completions(
                             f"校验错误：{first_error}",
                             "必须包含 build_chat_prompt 列出的全部快速字段，不要返回完整建议层字段。",
                             "每个字符串尽量控制在 80 个中文字符以内，避免输出被截断。",
-                            build_chat_prompt(resume_text, job_text, analysis),
+                            build_chat_prompt(
+                                resume_text,
+                                job_text,
+                                analysis,
+                                capability_assessments,
+                            ),
                         ]
                     ),
                 },
@@ -1873,6 +2092,7 @@ def generate_advice(
     resume_text: str,
     job_text: str,
     analysis: dict[str, Any],
+    capability_assessments: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     config = get_llm_config()
     if not config.api_key:
@@ -1881,9 +2101,23 @@ def generate_advice(
     client = create_openai_client(config)
 
     if config.api_style == "chat_completions":
-        advice = generate_with_chat_completions(client, config, resume_text, job_text, analysis)
+        advice = generate_with_chat_completions(
+            client,
+            config,
+            resume_text,
+            job_text,
+            analysis,
+            capability_assessments,
+        )
     else:
-        advice = generate_with_responses_api(client, config, resume_text, job_text, analysis)
+        advice = generate_with_responses_api(
+            client,
+            config,
+            resume_text,
+            job_text,
+            analysis,
+            capability_assessments,
+        )
 
     if not analysis.get("benchmark_context"):
         advice["benchmark_comparison"] = {
@@ -1897,6 +2131,42 @@ def generate_advice(
             "candidate_comparison": "没有可靠录用样本，不能把模型常识当作该公司的真实录用画像。",
         }
     return advice
+
+
+def discover_job_capabilities(
+    resume_text: str,
+    job_text: str,
+) -> dict[str, Any]:
+    config = get_llm_config()
+    if not config.api_key:
+        raise LLMConfigurationError("LLM_API_KEY or OPENAI_API_KEY is not configured.")
+
+    client = create_openai_client(config)
+    prompt = build_capability_discovery_prompt(resume_text, job_text)
+    if config.api_style == "chat_completions":
+        response = client.chat.completions.create(
+            model=config.model,
+            messages=[
+                {"role": "system", "content": CAPABILITY_DISCOVERY_INSTRUCTIONS},
+                {"role": "user", "content": prompt},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0,
+            max_tokens=min(config.max_output_tokens, 1200),
+            **get_chat_completion_options(config),
+        )
+        content = response.choices[0].message.content
+        if not isinstance(content, str) or not content.strip():
+            raise LLMResponseError("Model returned empty capability content.")
+        return validate_capability_discovery(parse_json_object(content))
+
+    response = client.responses.create(
+        model=config.model,
+        instructions=CAPABILITY_DISCOVERY_INSTRUCTIONS,
+        input=prompt,
+        max_output_tokens=min(config.max_output_tokens, 1200),
+    )
+    return validate_capability_discovery(parse_json_object(response.output_text))
 
 
 def normalize_job_text(
