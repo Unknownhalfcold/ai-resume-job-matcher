@@ -561,6 +561,82 @@ h3 {
   min-width: 0;
 }
 
+.thinking-option {
+  display: flex;
+  align-items: center;
+  min-width: 224px;
+}
+
+.thinking-switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 7px 11px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.72);
+  cursor: pointer;
+}
+
+.thinking-switch input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.thinking-track {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  border-radius: 999px;
+  background: #d2d2d7;
+  transition: background 180ms ease;
+  flex: 0 0 auto;
+}
+
+.thinking-track span {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+  transition: transform 180ms ease;
+}
+
+.thinking-switch input:checked + .thinking-track {
+  background: var(--blue);
+}
+
+.thinking-switch input:checked + .thinking-track span {
+  transform: translateX(16px);
+}
+
+.thinking-switch input:focus-visible + .thinking-track {
+  outline: 3px solid rgba(0, 113, 227, 0.2);
+  outline-offset: 2px;
+}
+
+.thinking-copy {
+  display: grid;
+  gap: 2px;
+}
+
+.thinking-copy strong {
+  font-size: 13px;
+}
+
+.thinking-copy small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .tool-group {
   display: flex;
   align-items: center;
@@ -1676,6 +1752,11 @@ select:focus {
   .command-tools,
   .result-command-bar .tool-group {
     justify-content: flex-start;
+  }
+
+  .thinking-option,
+  .thinking-switch {
+    width: 100%;
   }
 
   .workspace-heading {

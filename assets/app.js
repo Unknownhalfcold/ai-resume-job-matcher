@@ -19,6 +19,7 @@ const state = {
   capabilityDiscovery: null,
   capabilityAssessments: [],
   pendingAnalysis: null,
+  thinkingEnabled: true,
 };
 
 const BACKEND_TIMEOUT_MS = 12000;
@@ -28,7 +29,10 @@ const MAX_RESUME_CHARS = 8000;
 const MAX_JOB_CHARS = 8000;
 const MAX_TOTAL_INPUT_CHARS = 16000;
 const AUTH_TOKEN_STORAGE_KEY = "airjm_auth_token";
-const CLOUD_API_BASE_URL = window.APP_CONFIG?.apiBaseUrl || "https://ai-resume-job-matcher-api.onrender.com";
+const THINKING_MODE_STORAGE_KEY = "airjm_thinking_enabled";
+const API_BASE_URL = window.APP_CONFIG?.API_BASE_URL
+  || window.APP_CONFIG?.apiBaseUrl
+  || "https://api.jobmatcher.top";
 const SUPABASE_URL = window.APP_CONFIG?.supabaseUrl || "";
 const SUPABASE_PUBLISHABLE_KEY = window.APP_CONFIG?.supabasePublishableKey || "";
 const PAGE_NAMES = ["start", "analyze", "capabilities", "result", "history", "privacy"];
@@ -116,6 +120,8 @@ const elements = {
   capabilityNote: document.querySelector("#capability-note"),
   skipCapabilitiesButton: document.querySelector("#skip-capabilities"),
   confirmCapabilitiesButton: document.querySelector("#confirm-capabilities"),
+  thinkingMode: document.querySelector("#thinking-mode"),
+  thinkingHint: document.querySelector("#thinking-hint"),
   resumeFileStatus: document.querySelector("#resume-file-status"),
   jdFileStatus: document.querySelector("#jd-file-status"),
   resultPanel: document.querySelector("#result"),
@@ -150,8 +156,8 @@ function getApiBaseUrlCandidate() {
     return explicitApiUrl.replace(/\/$/, "");
   }
 
-  if (CLOUD_API_BASE_URL) {
-    return CLOUD_API_BASE_URL.replace(/\/$/, "");
+  if (API_BASE_URL) {
+    return API_BASE_URL.replace(/\/$/, "");
   }
 
   if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
@@ -670,7 +676,7 @@ async function ensureApiAvailable() {
     return true;
   }
 
-  elements.runNote.textContent = "正在连接云端 API，Render 免费实例可能需要唤醒";
+  elements.runNote.textContent = "正在连接云端 API";
   await detectBackend();
   return state.apiAvailable;
 }
@@ -1212,7 +1218,7 @@ async function analyzeViaApi(resumeText, jobText) {
 async function extractResumeFile(file) {
   const apiReady = await ensureApiAvailable();
   if (!apiReady) {
-    throw new Error("云端 API 暂时未连接，请等待 Render 唤醒后重试。");
+    throw new Error("云端 API 暂时未连接，请确认后端服务是否可访问。");
   }
 
   const formData = new FormData();
@@ -1515,6 +1521,7 @@ async function generateAiAdvice(resumeText, jobText) {
         resume: resumeText,
         job: jobText,
         capability_assessments: state.capabilityAssessments,
+        thinking: state.thinkingEnabled,
       }),
     },
     LLM_REQUEST_TIMEOUT_MS,
@@ -1714,7 +1721,13 @@ async function completeAnalysis(resumeText, jobText, capabilityAssessments = [])
     updateProgress(28, "规则分析", "正在识别岗位关键词和简历证据");
     const result = await runAnalysis(resumeText, jobText);
     if (state.apiAvailable && state.llmConfigured) {
-      updateProgress(58, "AI 综合分析", "正在融合语义、经历、简历质量与能力自评");
+      updateProgress(
+        58,
+        "AI 综合分析",
+        state.thinkingEnabled
+          ? "深度思考已开启，正在融合语义、经历、简历质量与能力自评"
+          : "快速模式已开启，正在融合语义、经历、简历质量与能力自评",
+      );
       try {
         const response = await generateAiAdvice(resumeText, jobText);
         applyAiScoringToResult(result, response);
@@ -2055,7 +2068,11 @@ function renderAiAdvice(response) {
   const providerLabel = response.provider ? `${response.provider} / ${response.model}` : response.model;
   const finalScore = response.final_scoring?.score;
   const timingLabel = response.timing?.total_ms ? ` · ${(response.timing.total_ms / 1000).toFixed(1)}s` : "";
-  const thinkingLabel = response.thinking_mode ? ` · thinking ${response.thinking_mode}` : "";
+  const thinkingLabel = response.thinking_mode === "enabled"
+    ? " · 深度思考开启"
+    : response.thinking_mode === "disabled"
+      ? " · 深度思考关闭"
+      : "";
   elements.aiAdviceStatus.textContent = finalScore === undefined
     ? `AI 建议已生成 · ${providerLabel} · 规则分数保持 ${response.rule_score}/100`
     : `AI 综合分析已生成 · ${providerLabel}${thinkingLabel}${timingLabel} · 最终分 ${finalScore}/100`;
@@ -2360,6 +2377,14 @@ function bindEvents() {
     showPage("analyze");
   });
 
+  elements.thinkingMode.addEventListener("change", () => {
+    state.thinkingEnabled = elements.thinkingMode.checked;
+    localStorage.setItem(THINKING_MODE_STORAGE_KEY, String(state.thinkingEnabled));
+    elements.thinkingHint.textContent = state.thinkingEnabled
+      ? "已开启，复杂分析可能需要更长时间"
+      : "已关闭，分析通常更快，但推理深度可能降低";
+  });
+
   elements.editInputsButton.addEventListener("click", () => {
     showPage("analyze");
   });
@@ -2623,7 +2648,7 @@ function bindEvents() {
     const jobText = elements.jobInput.value.trim();
 
     if (!state.apiAvailable) {
-      showAiAdviceMessage("云端 API 暂未连接，已保留现有建议；请等待 Render 唤醒后重试。");
+      showAiAdviceMessage("云端 API 暂未连接，已保留现有建议；请确认后端服务是否可访问。");
       return;
     }
 
@@ -2678,6 +2703,11 @@ renderEmptyResult();
 elements.loadingPanel.hidden = true;
 elements.analyzeButton.disabled = true;
 elements.loadSampleButton.disabled = true;
+state.thinkingEnabled = localStorage.getItem(THINKING_MODE_STORAGE_KEY) !== "false";
+elements.thinkingMode.checked = state.thinkingEnabled;
+elements.thinkingHint.textContent = state.thinkingEnabled
+  ? "已开启，复杂分析可能需要更长时间"
+  : "已关闭，分析通常更快，但推理深度可能降低";
 loadStoredAuthToken();
 bindEvents();
 showPage(getPageFromHash(), { push: false });

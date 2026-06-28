@@ -201,6 +201,7 @@ $env:LLM_MODEL="deepseek-v4-flash"
 {
   "resume": "简历文本",
   "job": "岗位 JD 文本",
+  "thinking": true,
   "capability_assessments": [
     {
       "title": "Python",
@@ -214,7 +215,7 @@ $env:LLM_MODEL="deepseek-v4-flash"
 }
 ```
 
-接口只接受 `resume`、`job` 和受限的 `capability_assessments`。`api_key`、`base_url`、`llm_config` 和前端传入的分数会被拒绝；模型配置只从后端环境变量读取。
+接口只接受 `resume`、`job`、布尔值 `thinking` 和受限的 `capability_assessments`。`thinking` 只控制本次 DeepSeek 最终综合分析是否启用深度思考；省略时读取服务端默认值。`api_key`、`base_url`、`llm_config` 和前端传入的分数会被拒绝；模型配置只从后端环境变量读取。
 
 返回内容包括：
 

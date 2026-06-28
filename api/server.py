@@ -12,7 +12,7 @@ from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, Uplo
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -39,6 +39,7 @@ from api.llm_advisor import (
     get_llm_metadata,
     get_llm_request_timeout_seconds,
     normalize_job_text,
+    resolve_thinking_mode,
 )
 from api.request_controls import (
     complete_usage_event,
@@ -53,6 +54,8 @@ DEFAULT_ALLOWED_ORIGINS = (
     "http://localhost:8000",
     "http://127.0.0.1:8000",
     "https://unknownhalfcold.github.io",
+    "https://jobmatcher.top",
+    "https://www.jobmatcher.top",
     "https://jobmatcher.win",
     "https://www.jobmatcher.win",
 )
@@ -89,6 +92,7 @@ class CapabilityAssessmentRequest(StrictRequestModel):
 
 class AISuggestionsRequest(AnalyzeRequest):
     capability_assessments: list[CapabilityAssessmentRequest] = Field(default_factory=list, max_length=12)
+    thinking: StrictBool | None = None
 
     @model_validator(mode="after")
     def validate_capability_evidence_length(self) -> "AISuggestionsRequest":
@@ -541,6 +545,7 @@ def ai_suggestions(
                 payload.job,
                 analysis,
                 capability_assessments,
+                payload.thinking,
             )
         except LLMConfigurationError as exc:
             complete_usage_event(session, usage_event, "configuration_error", started_at)
@@ -563,7 +568,7 @@ def ai_suggestions(
         "provider": llm_config.provider,
         "model": llm_config.model,
         "api_style": llm_config.api_style,
-        "thinking_mode": get_llm_metadata().get("llm_thinking_mode"),
+        "thinking_mode": resolve_thinking_mode(llm_config, payload.thinking),
         "rule_score": analysis.get("score"),
         "rule_score_source": "keyword_weight_formula",
         "capability_assessments": capability_assessments,

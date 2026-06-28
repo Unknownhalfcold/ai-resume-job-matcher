@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>AI Resume Job Matcher</title>
-    <link rel="stylesheet" href="assets/styles.css?v=11">
+    <link rel="stylesheet" href="assets/styles.css?v=12">
   </head>
   <body>
     <header class="topbar">
@@ -89,6 +89,17 @@
                     <span>上传 JD</span>
                     <small>最多 6 个文件</small>
                     <input id="jd-image-file" type="file" multiple accept=".docx,.pdf,image/png,image/jpeg,image/jpg,image/webp,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf">
+                  </label>
+                </div>
+
+                <div class="thinking-option">
+                  <label class="thinking-switch" for="thinking-mode">
+                    <input id="thinking-mode" type="checkbox" checked>
+                    <span class="thinking-track" aria-hidden="true"><span></span></span>
+                    <span class="thinking-copy">
+                      <strong>深度思考</strong>
+                      <small id="thinking-hint">已开启，复杂分析可能需要更长时间</small>
+                    </span>
                   </label>
                 </div>
 
@@ -256,7 +267,7 @@
               </div>
               <button class="button secondary" id="ai-advice-button" type="button" disabled>重新生成 AI 分析</button>
             </div>
-            <p class="security-note">AI 请求只发送简历与岗位 JD 到本站 Render 后端；API Key 与模型地址仅保存在服务器环境变量中。</p>
+            <p class="security-note">AI 请求只发送简历与岗位 JD 到本站云端后端；API Key 与模型地址仅保存在服务器环境变量中。</p>
             <p class="ai-advice-status" id="ai-advice-status">完成基础分析后可生成</p>
             <div class="ai-advice-content" id="ai-advice-content"></div>
           </section>
@@ -387,7 +398,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="assets/config.js?v=2"></script>
-    <script src="assets/app.js?v=19"></script>
+    <script src="assets/config.js?v=3"></script>
+    <script src="assets/app.js?v=20"></script>
   </body>
 </html>

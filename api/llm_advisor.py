@@ -1224,27 +1224,38 @@ def is_deepseek_config(config: LLMConfig) -> bool:
 
 def get_chat_completion_options(
     config: LLMConfig,
-    thinking_override: str | None = None,
+    thinking_override: bool | str | None = None,
 ) -> dict[str, Any]:
     if is_deepseek_config(config):
-        thinking_mode = (
-            thinking_override
-            or os.getenv("LLM_THINKING_MODE")
-            or "enabled"
-        ).strip().lower()
+        thinking_mode = resolve_thinking_mode(config, thinking_override)
         return {
             "extra_body": {
                 "thinking": {
-                    "type": "disabled" if thinking_mode in {"disabled", "off", "false", "0"} else "enabled",
+                    "type": thinking_mode,
                 }
             }
         }
     return {}
 
 
-def get_advice_max_tokens(config: LLMConfig) -> int:
-    thinking_mode = (os.getenv("LLM_THINKING_MODE") or "enabled").strip().lower()
-    if is_deepseek_config(config) and thinking_mode not in {"disabled", "off", "false", "0"}:
+def resolve_thinking_mode(
+    config: LLMConfig,
+    thinking_override: bool | str | None = None,
+) -> str:
+    if not is_deepseek_config(config):
+        return "provider_default"
+    if isinstance(thinking_override, bool):
+        return "enabled" if thinking_override else "disabled"
+    raw_mode = thinking_override or os.getenv("LLM_THINKING_MODE") or "enabled"
+    return "disabled" if str(raw_mode).strip().lower() in {"disabled", "off", "false", "0"} else "enabled"
+
+
+def get_advice_max_tokens(
+    config: LLMConfig,
+    thinking_override: bool | str | None = None,
+) -> int:
+    thinking_mode = resolve_thinking_mode(config, thinking_override)
+    if thinking_mode == "enabled":
         return max(config.max_output_tokens, 6000)
     return min(config.max_output_tokens, 1800)
 
@@ -1944,7 +1955,9 @@ def generate_with_responses_api(
     job_text: str,
     analysis: dict[str, Any],
     capability_assessments: list[dict[str, Any]] | None = None,
+    thinking_enabled: bool | None = None,
 ) -> dict[str, Any]:
+    del thinking_enabled
     response = client.responses.create(
         model=config.model,
         instructions=SYSTEM_INSTRUCTIONS,
@@ -1985,6 +1998,7 @@ def generate_with_chat_completions(
     job_text: str,
     analysis: dict[str, Any],
     capability_assessments: list[dict[str, Any]] | None = None,
+    thinking_enabled: bool | None = None,
 ) -> dict[str, Any]:
     response = client.chat.completions.create(
         model=config.model,
@@ -2002,8 +2016,8 @@ def generate_with_chat_completions(
         ],
         response_format={"type": "json_object"},
         temperature=config.temperature,
-        max_tokens=get_advice_max_tokens(config),
-        **get_chat_completion_options(config),
+        max_tokens=get_advice_max_tokens(config, thinking_enabled),
+        **get_chat_completion_options(config, thinking_enabled),
     )
 
     content = response.choices[0].message.content
@@ -2039,8 +2053,8 @@ def generate_with_chat_completions(
             ],
             response_format={"type": "json_object"},
             temperature=0,
-            max_tokens=get_advice_max_tokens(config),
-            **get_chat_completion_options(config),
+            max_tokens=get_advice_max_tokens(config, thinking_enabled),
+            **get_chat_completion_options(config, thinking_enabled),
         )
 
         retry_content = retry_response.choices[0].message.content
@@ -2111,6 +2125,7 @@ def generate_advice(
     job_text: str,
     analysis: dict[str, Any],
     capability_assessments: list[dict[str, Any]] | None = None,
+    thinking_enabled: bool | None = None,
 ) -> dict[str, Any]:
     config = get_llm_config()
     if not config.api_key:
@@ -2126,6 +2141,7 @@ def generate_advice(
             job_text,
             analysis,
             capability_assessments,
+            thinking_enabled,
         )
     else:
         advice = generate_with_responses_api(
@@ -2135,6 +2151,7 @@ def generate_advice(
             job_text,
             analysis,
             capability_assessments,
+            thinking_enabled,
         )
 
     if not analysis.get("benchmark_context"):

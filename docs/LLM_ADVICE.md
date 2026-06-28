@@ -20,7 +20,7 @@ LLM 层负责岗位能力提取、语义、经历、质量、能力对齐和个�
 
 对兼容 Chat Completions 的第三方模型，模型先返回精简的评分证据、岗位要求和优先动作，后端再确定性地补齐 Gap、评分口径、网申边界和结果页结构。这样可以减少延迟和 JSON 截断，同时不把最终分数交给模型。
 
-当服务端使用 DeepSeek 时，最终综合评分的 thinking mode 由 `LLM_THINKING_MODE` 控制，当前默认使用 `enabled`。JD 清洗和能力表提取属于边界清晰的结构化抽取任务，固定使用 thinking disabled，避免推理 token 挤占 JSON 输出。这个设置只存在于服务端，前端用户不能修改。后续应使用同一批人工标注样本比较最终评分 enabled / disabled 的准确率、评分波动和耗时，再决定是否关闭。
+当服务端使用 DeepSeek 时，`LLM_THINKING_MODE` 决定未明确传值时的默认模式，当前默认使用 `enabled`。用户可以在输入页为本次最终综合评分开启或关闭深度思考；JD 清洗和能力表提取仍固定使用 thinking disabled，避免推理 token 挤占 JSON 输出。前端只能传递布尔值，不能修改 API Key、Base URL、模型或供应商。后续应使用同一批人工标注样本比较最终评分 enabled / disabled 的准确率、评分波动和耗时。
 
 到岗天数、实习时长、期望薪资、工作地点和身份类网申字段会保留为申请提醒，但不会进入核心技能惩罚或分数上限计算。规则层还会使用包含关系连接关键词和 LLM 要求，例如已匹配 `Excel` 时，可视为“高级 Excel 技能”已有基础证据。
 
@@ -250,13 +250,13 @@ http://localhost:8001/docs
 当前版本不支持浏览器 BYOK。统一调用链为：
 
 ```text
-GitHub Pages -> Render Web Service -> Render Environment Variables -> LLM
+GitHub Pages -> 云端 Web Service -> 云端环境变量 -> LLM
 ```
 
 安全边界：
 
 - 前端只发送简历和 JD。
-- `LLM_API_KEY`、`LLM_BASE_URL`、模型名只在 Render 环境变量中配置。
+- `LLM_API_KEY`、`LLM_BASE_URL`、模型名只在云端后端环境变量中配置。
 - 请求模型禁止 `api_key`、`base_url`、`llm_config` 等额外字段。
 - API Key 不写入 GitHub、浏览器或数据库。
 - 日志只记录输入字符数、状态和耗时。
@@ -335,4 +335,4 @@ $env:LLM_MODEL="控制台中可用的模型名"
 
 ## 安全注意
 
-不要把真实 API Key 写进前端代码、README、截图或 GitHub 仓库。生产 Key 只放在 Render Environment Variables；本地调试 Key 只放在当前终端环境变量或未提交的 `.env` 中。
+不要把真实 API Key 写进前端代码、README、截图或 GitHub 仓库。生产 Key 只放在云端后端环境变量；本地调试 Key 只放在当前终端环境变量或未提交的 `.env` 中。

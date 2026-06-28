@@ -1,18 +1,18 @@
 # 前后端延迟检查报告
 
 检查日期：2026-06-12  
-测试入口：`https://www.jobmatcher.win`  
-后端：`https://ai-resume-job-matcher-api.onrender.com`
+测试入口：`https://www.jobmatcher.top`
+后端：`https://api.jobmatcher.top`
 
 ## 基线结果
 
 | 阶段 | 实测时间 | 结论 |
 | --- | ---: | --- |
 | Cloudflare / GitHub Pages 首页 | 0.65-1.02 秒 | 前端静态页面不是主要瓶颈 |
-| Render 热机 `/health` | 0.65-1.06 秒 | 浏览器到后端网络和基础响应可接受 |
-| Render 热机 `/api/analyze` | 0.61-1.63 秒 | Python 关键词规则计算很快 |
-| Render 冷启动 `/health` | 31.81 秒 | 免费实例休眠唤醒是最大固定延迟 |
-| Render 冷启动 `/api/analyze` | 31.96 秒 | 冷启动发生在业务代码执行之前 |
+| 云端后端热机 `/health` | 0.65-1.06 秒 | 浏览器到后端网络和基础响应可接受 |
+| 云端后端热机 `/api/analyze` | 0.61-1.63 秒 | Python 关键词规则计算很快 |
+| 旧 Render 冷启动 `/health` | 31.81 秒 | 免费实例休眠唤醒曾是最大固定延迟 |
+| 旧 Render 冷启动 `/api/analyze` | 31.96 秒 | 冷启动发生在业务代码执行之前 |
 | DeepSeek 完整分析热机 | 约 16-17 秒 | 第二个主要延迟来自模型推理与结构化输出 |
 
 ## 延迟发生在哪里
@@ -20,7 +20,7 @@
 ```text
 浏览器加载前端              约 0.7-1.0 秒
         ↓
-浏览器连接 Render 热机       约 0.6-1.1 秒
+浏览器连接云端后端热机       约 0.6-1.1 秒
         ↓
 Python 规则分析              通常小于 1 秒
         ↓
@@ -29,15 +29,15 @@ DeepSeek 结构化推理          约 16-17 秒，thinking mode 开启后可能�
 数据库写入分析摘要           通常不是主要瓶颈
 ```
 
-如果 Render 已休眠，第一步访问后端会额外增加约 31-32 秒。当前主要问题不是前端 `fetch` 流程，而是：
+如果使用会休眠的免费实例，第一步访问后端会额外增加约 31-32 秒。当前主要问题不是前端 `fetch` 流程，而是：
 
-1. Render Free 实例冷启动。
+1. 免费实例冷启动。
 2. LLM 生成较长结构化 JSON。
 3. 新增能力确认流程后，一次完整分析包含“能力提取”和“最终建议”两次 LLM 请求。
 
 ## Thinking Mode
 
-DeepSeek 最终综合评分的 thinking mode 由服务端环境变量 `LLM_THINKING_MODE` 控制，默认使用 `enabled`。前端不能修改这个值。JD 清洗和岗位能力提取是结构化抽取任务，固定关闭 thinking，以减少超时和不完整 JSON；复杂的最终评分仍保留 thinking。
+DeepSeek 最终综合评分默认读取服务端环境变量 `LLM_THINKING_MODE`，输入页也提供本次请求级别的开关。开启时复杂分析可能更充分，但耗时和输出 token 会增加；关闭时通常更快。JD 清洗和岗位能力提取是结构化抽取任务，始终关闭 thinking，以减少超时和不完整 JSON。用户只能选择开关，不能修改 API Key、模型或模型地址。
 
 当前没有在同一模型版本、同一输入和同一服务器状态下得到足够多的 A/B 样本，因此不能严谨地断言关闭 thinking 后质量没有损失。现阶段优先保持开启，并在后续保存以下匿名指标后再比较：
 
@@ -51,7 +51,7 @@ DeepSeek 最终综合评分的 thinking mode 由服务端环境变量 `LLM_THINK
 
 ### 方案 A：先解决冷启动
 
-把 Render 升级为不会休眠的实例，或迁移到支持常驻容器的平台。这一项可以直接消除约 31-32 秒的首次等待，收益最大。
+使用不会休眠的云服务器或常驻容器平台。这一项可以直接消除约 31-32 秒的首次等待，收益最大。
 
 ### 方案 B：选择更靠近用户和数据库的区域
 
@@ -71,4 +71,4 @@ DeepSeek 最终综合评分的 thinking mode 由服务端环境变量 `LLM_THINK
 
 ## 当前建议
 
-现阶段保持 DeepSeek V4 thinking mode，优先处理 Render 冷启动和服务器区域。等积累至少 30-50 组人工检查样本后，再比较 thinking enabled / disabled 的质量与耗时，不应只凭一两次输出决定。
+现阶段保持 DeepSeek V4 thinking mode，优先处理服务器区域、带宽和 LLM 响应时间。等积累至少 30-50 组人工检查样本后，再比较 thinking enabled / disabled 的质量与耗时，不应只凭一两次输出决定。

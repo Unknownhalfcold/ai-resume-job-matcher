@@ -11,11 +11,12 @@ AI Resume Job Matcher 是一个面向不同专业求职者的简历与岗位匹�
 
 ## Live Demo
 
-- 正式站点：[https://www.jobmatcher.win](https://www.jobmatcher.win)
+- 正式站点：[https://www.jobmatcher.top](https://www.jobmatcher.top)
+- 旧域名保留：[https://www.jobmatcher.win](https://www.jobmatcher.win)，可配置为跳转或备用入口
 - GitHub Pages 备用入口：[https://unknownhalfcold.github.io/ai-resume-job-matcher/](https://unknownhalfcold.github.io/ai-resume-job-matcher/)
-- 云端 API：[https://ai-resume-job-matcher-api.onrender.com](https://ai-resume-job-matcher-api.onrender.com)
+- 云端 API：[https://api.jobmatcher.top](https://api.jobmatcher.top)
 
-Render 免费实例休眠后，第一次请求可能需要等待服务唤醒。
+当前后端运行在阿里云 ECS，前端通过正式 HTTPS API 域名访问后端。
 
 ## 使用流程
 
@@ -24,8 +25,9 @@ Render 免费实例休眠后，第一次请求可能需要等待服务唤醒。
 3. 系统合并并清洗 JD，识别岗位职责、任职要求、加分项和技术问题。
 4. LLM 从 JD 明确要求和岗位职责中提取工具、专业方法、领域知识、语言和软性能力。
 5. 用户确认自己的真实熟练度，并可补充项目、任务或成果证据。
-6. 基础规则层与 LLM 综合计算关键词、语义、经历、简历质量和能力对齐分。
-7. 分析完成后可以选择“匹配其他 JD”，只清空当前岗位内容并保留简历。
+6. 用户可选择是否开启 DeepSeek 深度思考；开启后复杂分析通常更充分，但等待时间可能更长。
+7. 基础规则层与 LLM 综合计算关键词、语义、经历、简历质量和能力对齐分。
+8. 分析完成后可以选择“匹配其他 JD”，只清空当前岗位内容并保留简历。
 
 登录用户的分析结果会保存到自己的 History 页面；游客可以直接分析，但不会保存历史。
 
@@ -50,7 +52,7 @@ Render 免费实例休眠后，第一次请求可能需要等待服务唤醒。
 - 判断证书与奖项的岗位相关性和可信度；无法核验时不加分。
 - 从用户提供的材料中识别公司、岗位和规模，并模拟目标岗位 HR 初筛视角。
 - 区分应写在简历中的能力证据与通常由招聘网站表单单独填写的信息。
-- 前端只提交简历和 JD，API Key、Base URL、模型名均由 Render 环境变量管理。
+- 前端只提交简历、JD、能力自评和是否启用深度思考；API Key、Base URL、模型名均由云端后端环境变量管理。
 
 ### 账户与数据
 
@@ -62,7 +64,7 @@ Render 免费实例休眠后，第一次请求可能需要等待服务唤醒。
 
 ## 当前版本范围
 
-当前线上版本采用 GitHub Pages 前端、Render FastAPI 后端、Postgres 数据库和 DeepSeek 默认 LLM。未设置 `DATABASE_URL` 的本地开发环境会自动使用 SQLite。
+当前线上版本采用 GitHub Pages 前端、阿里云 ECS FastAPI 后端、Postgres 数据库和 DeepSeek 默认 LLM。未设置 `DATABASE_URL` 的本地开发环境会自动使用 SQLite。
 
 LLM 负责语义匹配、经历匹配、简历质量、证书奖项和 HR 视角分析；后端负责固定加权公式、核心技能惩罚和分数上限。用户材料未提供的公司信息、历史招聘案例、证书等级或经历不得由模型补写。
 
@@ -76,7 +78,7 @@ LLM 负责语义匹配、经历匹配、简历质量、证书奖项和 HR 视角
 - 基础账户、Postgres 数据库、用户级历史记录和删除功能。
 - LLM 输入长度、90 秒服务端超时、10 并发上限和基于 IP 的调用限额。
 - 到岗天数、实习时长、薪资和地点等网申字段只做提醒，不作为简历核心技能缺失项扣分。
-- GitHub Pages 与 Render 云端部署。
+- GitHub Pages 与云端后端部署。
 
 暂未包含：
 
@@ -116,12 +118,12 @@ user_id, match_score, strengths, weaknesses, suggestions, created_at
 
 项目已经部署到云端，普通用户不需要安装 Python、启动本地后端或配置模型：
 
-1. 打开 [https://www.jobmatcher.win](https://www.jobmatcher.win)。
+1. 打开 [https://www.jobmatcher.top](https://www.jobmatcher.top)。
 2. 直接以游客模式分析，或使用邮箱注册以保存历史。
 3. 上传 DOCX/PDF 简历，粘贴或上传岗位 JD。
 4. 确认 AI 生成的岗位能力表，并等待云端完成十步综合分析。
 
-开发者部署和环境变量说明见 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。真实 LLM Key 只配置在 Render Environment Variables。
+开发者部署和环境变量说明见 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。真实 LLM Key 只配置在云端后端环境变量。
 
 ## 评分逻辑
 
@@ -143,7 +145,7 @@ user_id, match_score, strengths, weaknesses, suggestions, created_at
 
 ## Supabase 邮箱登录配置
 
-Supabase 项目创建完成后，还需要在 Render 配置以下环境变量：
+Supabase 项目创建完成后，还需要在云端后端配置以下环境变量：
 
 ```text
 SUPABASE_URL=https://你的-project-ref.supabase.co
@@ -151,16 +153,16 @@ SUPABASE_PUBLISHABLE_KEY=你的 publishable key
 SUPABASE_REQUIRE_EMAIL_CONFIRMATION=true
 ```
 
-前端会通过 Render 的 `/api/auth/config` 获取 Supabase URL 和 publishable key。Render 环境变量优先，仓库中的公开项目配置只作为当前项目的兜底。publishable key 本来就是供浏览器使用的公开标识，不等同于 LLM API Key；`service_role` 或 secret key 绝不能放进前端或提交到仓库。
+前端会通过云端后端的 `/api/auth/config` 获取 Supabase URL 和 publishable key。后端环境变量优先，仓库中的公开项目配置只作为当前项目的兜底。publishable key 本来就是供浏览器使用的公开标识，不等同于 LLM API Key；`service_role` 或 secret key 绝不能放进前端或提交到仓库。
 
 还需要在 Supabase Dashboard 完成：
 
 1. Authentication → Providers → Email：启用 Email provider 和 Confirm email。
-2. Authentication → URL Configuration：Site URL 填 `https://www.jobmatcher.win`。
-3. Redirect URLs 添加 `https://www.jobmatcher.win/**` 和 `https://jobmatcher.win/**`。
+2. Authentication → URL Configuration：Site URL 填 `https://www.jobmatcher.top`。
+3. Redirect URLs 添加 `https://www.jobmatcher.top/**`、`https://jobmatcher.top/**`、`https://www.jobmatcher.win/**` 和 `https://jobmatcher.win/**`。
 4. 正式开放注册前配置 Custom SMTP；Supabase 默认邮件服务只适合开发测试。
 
-配置完成后，`https://ai-resume-job-matcher-api.onrender.com/health` 中应显示：
+配置完成后，`https://api.jobmatcher.top/health` 中应显示：
 
 ```json
 {
@@ -178,8 +180,8 @@ GitHub Pages 前端
         └── 只发送简历和 JD 的 HTTPS 请求
                 │
                 ▼
-        Render FastAPI 后端
-          ├── 从 Environment Variables 读取 LLM Key / Base URL
+        云端 FastAPI 后端
+          ├── 从云端环境变量读取 LLM Key / Base URL
           ├── 8,000 + 8,000 字符校验、IP 限流、90 秒超时
           ├── 最多同时处理 10 个 LLM 请求
           ├── 文档文本提取
@@ -204,7 +206,7 @@ GitHub Pages 前端
 - 单次 LLM 请求超时为 90 秒；超过 10 个并发请求时直接返回“当前服务器繁忙，请稍后再试”。
 - 日志只记录接口名、输入字符数、状态和耗时，不记录完整简历、JD 或 API Key。
 - `RATE_LIMIT_SALT` 用于把 IP 做不可逆 HMAC 哈希；数据库不保存原始 IP。
-- 如果部署过 v0.7 之前允许浏览器传入 `base_url` 的版本，升级后应在 LLM 控制台轮换一次 API Key，再把新 Key 只写入 Render Environment Variables。
+- 如果部署过 v0.7 之前允许浏览器传入 `base_url` 的版本，升级后应在 LLM 控制台轮换一次 API Key，再把新 Key 只写入云端后端环境变量。
 
 ### LLM 当前负责什么
 

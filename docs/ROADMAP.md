@@ -98,7 +98,7 @@ py -X utf8 scripts/analyze_match.py
 
 计划内容：
 
-- 部署 Render 后端服务
+- 部署云端后端服务
 - 创建 Neon Postgres 数据库并配置 `DATABASE_URL`
 - 将 GitHub Pages 前端连接到云端 API
 - 在 README 中加入产品截图或演示动图
