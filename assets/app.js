@@ -30,9 +30,7 @@ const MAX_JOB_CHARS = 8000;
 const MAX_TOTAL_INPUT_CHARS = 16000;
 const AUTH_TOKEN_STORAGE_KEY = "airjm_auth_token";
 const THINKING_MODE_STORAGE_KEY = "airjm_thinking_enabled";
-const API_BASE_URL = window.APP_CONFIG?.API_BASE_URL
-  || window.APP_CONFIG?.apiBaseUrl
-  || "https://api.jobmatcher.top";
+const API_BASE_URL = window.APP_CONFIG?.API_BASE_URL || "https://api.jobmatcher.top";
 const SUPABASE_URL = window.APP_CONFIG?.supabaseUrl || "";
 const SUPABASE_PUBLISHABLE_KEY = window.APP_CONFIG?.supabasePublishableKey || "";
 const PAGE_NAMES = ["start", "analyze", "capabilities", "result", "history", "privacy"];
