@@ -128,6 +128,8 @@ ALLOWED_ORIGINS=https://www.jobmatcher.top,https://jobmatcher.top,https://www.jo
 AUTH_TOKEN_TTL_DAYS=14
 ```
 
+后端代码会把 `DEFAULT_ALLOWED_ORIGINS` 和 `ALLOWED_ORIGINS` 合并。即使 ECS 上的环境变量暂时漏掉 `jobmatcher.top`，默认白名单也会保留新旧前端域名；但生产环境仍建议把 ECS 的 `ALLOWED_ORIGINS` 显式更新为上面的完整列表。
+
 可选，启用默认 LLM：
 
 ```text

@@ -133,10 +133,11 @@ async def lifespan(app: FastAPI):
 
 
 def get_allowed_origins() -> list[str]:
+    origins = list(DEFAULT_ALLOWED_ORIGINS)
     raw_value = os.getenv("ALLOWED_ORIGINS")
-    if not raw_value:
-        return list(DEFAULT_ALLOWED_ORIGINS)
-    return [origin.strip() for origin in raw_value.split(",") if origin.strip()]
+    if raw_value:
+        origins.extend(origin.strip() for origin in raw_value.split(",") if origin.strip())
+    return list(dict.fromkeys(origins))
 
 
 app = FastAPI(
