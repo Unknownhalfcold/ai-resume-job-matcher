@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import os
 import json
+import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from contextlib import asynccontextmanager
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -47,7 +49,7 @@ from api.request_controls import (
     get_request_control_metadata,
     llm_request_slot,
 )
-from scripts.analyze_match import analyze, load_keywords
+from scripts.analyze_match import analyze, contains_any, extract_job_keywords, load_keywords
 
 
 DEFAULT_ALLOWED_ORIGINS = (
@@ -189,6 +191,32 @@ HIRING_BENCHMARKS = load_hiring_benchmarks()
 LLM_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name_prefix="resume-llm")
 
 
+@lru_cache(maxsize=1)
+def get_build_metadata() -> dict[str, str]:
+    commit = (
+        os.getenv("APP_VERSION")
+        or os.getenv("GIT_COMMIT")
+        or os.getenv("RENDER_GIT_COMMIT")
+        or ""
+    ).strip()
+    if not commit:
+        try:
+            commit = subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"],
+                cwd=Path(__file__).resolve().parent.parent,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=2,
+            ).strip()
+        except Exception:
+            commit = "unknown"
+
+    return {
+        "app_version": commit,
+        "deployed_at": os.getenv("DEPLOYED_AT", "unknown"),
+    }
+
+
 def run_llm_task(function: Any, *args: Any) -> Any:
     future = LLM_EXECUTOR.submit(function, *args)
     try:
@@ -214,6 +242,108 @@ def find_hiring_benchmark(job_text: str) -> dict[str, Any] | None:
                 **benchmark,
             }
     return None
+
+
+def capability_category_for_keyword(category: str, name: str) -> str:
+    value = f"{category} {name}".lower()
+    if any(term in value for term in ("python", "sql", "excel", "java", "c/c++", "前端", "后端", "软件", "技术", "工具")):
+        return "tool"
+    if any(term in value for term in ("协作", "沟通", "通用", "组织", "管理")):
+        return "soft"
+    if any(term in value for term in ("行业", "金融", "法律", "教育", "自然", "生命", "工程", "医学", "公共")):
+        return "domain"
+    if any(term in value for term in ("英语", "语言")):
+        return "language"
+    return "professional"
+
+
+def capability_importance_for_weight(weight: int) -> str:
+    if weight >= 5:
+        return "must_have"
+    if weight >= 3:
+        return "important"
+    return "nice_to_have"
+
+
+def build_rule_capability_fallback(resume_text: str, job_text: str, note: str = "") -> dict[str, Any]:
+    job_keywords = sorted(
+        extract_job_keywords(job_text, KEYWORDS),
+        key=lambda keyword: (-keyword.weight, keyword.name),
+    )
+    capabilities: list[dict[str, Any]] = []
+
+    for keyword in job_keywords[:10]:
+        matched = contains_any(resume_text, keyword.aliases)
+        category = capability_category_for_keyword(keyword.category, keyword.name)
+        importance = capability_importance_for_weight(keyword.weight)
+        if category == "soft" and importance == "must_have":
+            importance = "nice_to_have"
+            weight = min(keyword.weight, 2)
+        else:
+            weight = keyword.weight
+        capabilities.append(
+            {
+                "title": keyword.name,
+                "category": category,
+                "source": "explicit",
+                "importance": importance,
+                "weight": max(1, min(5, weight)),
+                "jd_evidence": f"JD 中出现与「{keyword.name}」相关的关键词。",
+                "resume_evidence": f"简历中已出现「{keyword.name}」相关表达。" if matched else "简历中暂未识别到直接证据。",
+                "inferred_proficiency": "intermediate" if matched else "unknown",
+                "confidence": 65 if matched else 45,
+                "assessment_prompt": f"补充你在「{keyword.name}」上的真实任务、工具、产出或量化结果。",
+            }
+        )
+
+    generic_capabilities = [
+        {
+            "title": "岗位核心任务",
+            "category": "professional",
+            "source": "inferred",
+            "importance": "important",
+            "weight": 4,
+            "jd_evidence": "根据 JD 内容提炼出的岗位核心任务。",
+            "resume_evidence": "请补充与岗位职责直接相关的经历证据。",
+            "inferred_proficiency": "unknown",
+            "confidence": 40,
+            "assessment_prompt": "补充你做过的相似任务、负责范围和最终结果。",
+        },
+        {
+            "title": "专业方法与工具",
+            "category": "tool",
+            "source": "inferred",
+            "importance": "important",
+            "weight": 3,
+            "jd_evidence": "JD 通常会隐含对方法、工具或流程的要求。",
+            "resume_evidence": "请补充你实际使用过的方法、工具和熟练程度。",
+            "inferred_proficiency": "unknown",
+            "confidence": 35,
+            "assessment_prompt": "补充工具名称、使用场景、产出物或结果指标。",
+        },
+        {
+            "title": "成果证据质量",
+            "category": "professional",
+            "source": "inferred",
+            "importance": "important",
+            "weight": 3,
+            "jd_evidence": "岗位匹配不仅看关键词，也看结果是否可验证。",
+            "resume_evidence": "请补充数据、作品、交付物、论文、证书或业务影响。",
+            "inferred_proficiency": "unknown",
+            "confidence": 35,
+            "assessment_prompt": "补充可验证成果，例如数字、链接、奖项、报告或项目交付。",
+        },
+    ]
+    for item in generic_capabilities:
+        if len(capabilities) >= 3:
+            break
+        capabilities.append(item)
+
+    return {
+        "role_title": "当前目标岗位",
+        "capabilities": capabilities[:10],
+        "note": note or "LLM 能力识别暂不可用，已使用规则层生成基础能力表。",
+    }
 
 
 def serialize_user(user: User) -> dict[str, Any]:
@@ -251,6 +381,7 @@ def health() -> dict[str, Any]:
         "status": "ok",
         "engine": "rule_based",
         "keyword_count": len(KEYWORDS),
+        **get_build_metadata(),
         **get_database_metadata(),
         **get_llm_metadata(),
         **get_request_control_metadata(),
@@ -407,41 +538,92 @@ def discover_capabilities(
     request: Request,
     session: Session = Depends(get_database_session),
 ) -> dict[str, Any]:
-    llm_config = get_llm_config()
-    with llm_request_slot() as started_at:
-        usage_event = enforce_rate_limit(
-            session,
-            request,
-            "capability_discovery",
-            len(payload.resume) + len(payload.job),
-        )
-        try:
-            discovery = run_llm_task(discover_job_capabilities, payload.resume, payload.job)
-        except LLMConfigurationError as exc:
-            complete_usage_event(session, usage_event, "configuration_error", started_at)
-            raise HTTPException(status_code=503, detail="站点 LLM 暂未配置，请稍后再试。") from exc
-        except Exception as exc:
-            is_timeout = "timeout" in exc.__class__.__name__.lower()
-            complete_usage_event(session, usage_event, "timeout" if is_timeout else "error", started_at)
-            if is_timeout:
-                raise HTTPException(
-                    status_code=504,
-                    detail=f"能力识别超过 {get_llm_request_timeout_seconds():.0f} 秒，请稍后再试。",
-                ) from exc
-            raise HTTPException(status_code=502, detail="岗位能力识别失败，请稍后再试。") from exc
-        llm_ms = round((time.perf_counter() - started_at) * 1000)
-        complete_usage_event(session, usage_event, "success", started_at)
+    try:
+        llm_config = get_llm_config()
+        with llm_request_slot() as started_at:
+            usage_event = enforce_rate_limit(
+                session,
+                request,
+                "capability_discovery",
+                len(payload.resume) + len(payload.job),
+            )
+            try:
+                discovery = run_llm_task(discover_job_capabilities, payload.resume, payload.job)
+            except LLMConfigurationError:
+                complete_usage_event(session, usage_event, "configuration_error", started_at)
+                discovery = build_rule_capability_fallback(
+                    payload.resume,
+                    payload.job,
+                    "站点 LLM 暂未配置，已使用规则层生成基础能力表。",
+                )
+                return {
+                    "engine": "rule_capability_fallback",
+                    "provider": "rule_based",
+                    "model": "keyword_fallback",
+                    "thinking_mode": "disabled",
+                    "timing": {"llm_ms": round((time.perf_counter() - started_at) * 1000)},
+                    **discovery,
+                }
+            except Exception as exc:
+                is_timeout = "timeout" in exc.__class__.__name__.lower()
+                complete_usage_event(session, usage_event, "timeout" if is_timeout else "error", started_at)
+                reason = (
+                    f"LLM 能力识别超过 {get_llm_request_timeout_seconds():.0f} 秒，已使用规则层生成基础能力表。"
+                    if is_timeout
+                    else "LLM 能力识别失败，已使用规则层生成基础能力表。"
+                )
+                discovery = build_rule_capability_fallback(payload.resume, payload.job, reason)
+                return {
+                    "engine": "rule_capability_fallback",
+                    "provider": llm_config.provider,
+                    "model": llm_config.model,
+                    "thinking_mode": get_llm_metadata().get("llm_thinking_mode"),
+                    "timing": {"llm_ms": round((time.perf_counter() - started_at) * 1000)},
+                    **discovery,
+                }
+            llm_ms = round((time.perf_counter() - started_at) * 1000)
+            complete_usage_event(session, usage_event, "success", started_at)
 
-    return {
-        "engine": "llm_capability_discovery",
-        "provider": llm_config.provider,
-        "model": llm_config.model,
-        "thinking_mode": get_llm_metadata().get("llm_thinking_mode"),
-        "timing": {
-            "llm_ms": llm_ms,
-        },
-        **discovery,
-    }
+        return {
+            "engine": "llm_capability_discovery",
+            "provider": llm_config.provider,
+            "model": llm_config.model,
+            "thinking_mode": get_llm_metadata().get("llm_thinking_mode"),
+            "timing": {
+                "llm_ms": llm_ms,
+            },
+            **discovery,
+        }
+    except LLMConfigurationError:
+        discovery = build_rule_capability_fallback(
+            payload.resume,
+            payload.job,
+            "站点 LLM 暂未配置，已使用规则层生成基础能力表。",
+        )
+        return {
+            "engine": "rule_capability_fallback",
+            "provider": "rule_based",
+            "model": "keyword_fallback",
+            "thinking_mode": "disabled",
+            "timing": {"llm_ms": 0},
+            **discovery,
+        }
+    except HTTPException as exc:
+        if exc.status_code != 503:
+            raise
+        discovery = build_rule_capability_fallback(
+            payload.resume,
+            payload.job,
+            "当前服务器繁忙，已使用规则层生成基础能力表。",
+        )
+        return {
+            "engine": "rule_capability_fallback",
+            "provider": "rule_based",
+            "model": "keyword_fallback",
+            "thinking_mode": "disabled",
+            "timing": {"llm_ms": 0},
+            **discovery,
+        }
 
 
 @app.post("/api/extract/resume")

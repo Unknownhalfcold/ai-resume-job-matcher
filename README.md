@@ -126,6 +126,36 @@ user_id, match_score, strengths, weaknesses, suggestions, created_at
 
 开发者部署和环境变量说明见 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。真实 LLM Key 只配置在云端后端环境变量。
 
+## 生产部署检查
+
+当前正式前端只应调用：
+
+```text
+https://api.jobmatcher.top
+```
+
+每次把代码推送到 GitHub 后，还需要让阿里云 ECS 后端同步更新。GitHub Pages 会自动读取仓库静态文件，但 ECS 上的 FastAPI 服务不会因为 GitHub 更新而自动变化，除非你额外配置自动部署。
+
+建议发布顺序：
+
+1. 在本地确认 `git status` 干净，并推送到 GitHub。
+2. SSH 进入 ECS，进入项目目录后执行 `git pull`。
+3. 重启 FastAPI 服务，例如 `sudo systemctl restart jobmatcher`，具体服务名以你的 ECS 配置为准。
+4. 打开 `https://api.jobmatcher.top/health`，确认 `app_version` 已经变成最新 commit，且 `database_type`、`llm_configured`、`supabase_configured` 都符合预期。
+5. 打开 `https://api.jobmatcher.top/openapi.json`，确认 `/api/ai-suggestions` 的请求 schema 支持 `thinking` 字段。
+6. 在浏览器访问 `https://www.jobmatcher.top`，完成一次小样本分析。
+
+`/health` 会返回：
+
+```json
+{
+  "app_version": "当前部署 commit 或环境变量 APP_VERSION",
+  "deployed_at": "部署时间或 unknown"
+}
+```
+
+如果 LLM 的岗位能力识别暂时失败，`/api/capabilities` 会返回 `rule_capability_fallback`，用关键词规则生成基础能力表，避免用户流程直接中断。完整 AI 综合建议仍由 `/api/ai-suggestions` 负责。
+
 ## 评分逻辑
 
 系统使用固定十步流程：
