@@ -147,22 +147,7 @@ const elements = {
 };
 
 function getApiBaseUrlCandidate() {
-  const params = new URLSearchParams(window.location.search);
-  const explicitApiUrl = params.get("api");
-
-  if (explicitApiUrl) {
-    return explicitApiUrl.replace(/\/$/, "");
-  }
-
-  if (API_BASE_URL) {
-    return API_BASE_URL.replace(/\/$/, "");
-  }
-
-  if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
-    return "http://localhost:8001";
-  }
-
-  return "";
+  return API_BASE_URL.replace(/\/$/, "");
 }
 
 function getPageFromHash() {
