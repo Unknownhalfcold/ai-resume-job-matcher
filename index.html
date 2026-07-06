@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>AI Resume Job Matcher</title>
-    <link rel="stylesheet" href="assets/styles.css?v=12">
+    <link rel="stylesheet" href="assets/styles.css?v=13">
   </head>
   <body>
     <header class="topbar">
@@ -82,13 +82,13 @@
                 <div class="tool-group upload-actions" aria-label="上传入口">
                   <label class="upload-chip">
                     <span>上传简历</span>
-                    <small>DOCX / PDF</small>
-                    <input id="resume-file" type="file" accept=".doc,.docx,.pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf">
+                    <small>TXT / DOCX / PDF</small>
+                    <input id="resume-file" type="file" accept=".txt,.doc,.docx,.pdf,text/plain,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf">
                   </label>
                   <label class="upload-chip">
                     <span>上传 JD</span>
-                    <small>最多 6 个文件</small>
-                    <input id="jd-image-file" type="file" multiple accept=".docx,.pdf,image/png,image/jpeg,image/jpg,image/webp,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf">
+                    <small>最多 6 个来源</small>
+                    <input id="jd-image-file" type="file" multiple accept=".txt,.docx,.pdf,image/png,image/jpeg,image/jpg,image/webp,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf">
                   </label>
                 </div>
 
@@ -127,15 +127,17 @@
               </div>
             </section>
 
-            <div class="text-grid">
-              <label class="field">
-                <span>简历文本</span>
-                <textarea id="resume-input" maxlength="8000" spellcheck="false" placeholder="粘贴简历内容，或上传 Word / PDF 后自动提取（最多 8,000 字符）"></textarea>
+            <div class="input-stack">
+              <label class="field document-field">
+                <span>上传简历</span>
+                <textarea id="resume-input" maxlength="8000" spellcheck="false" placeholder="粘贴简历内容，或上传 TXT / Word / PDF 后用于分析（最多 8,000 字符）"></textarea>
+                <div class="file-preview-list" id="resume-file-preview" aria-live="polite"></div>
                 <span class="input-status" id="resume-file-status" role="status" hidden></span>
               </label>
-              <label class="field">
-                <span>岗位 JD</span>
-                <textarea id="job-input" maxlength="8000" spellcheck="false" placeholder="粘贴岗位描述或截图（Ctrl+V），也可上传多张截图 / DOCX / PDF；OCR 后由 LLM 整理（最多 8,000 字符）"></textarea>
+              <label class="field document-field">
+                <span>上传岗位 JD</span>
+                <textarea id="job-input" maxlength="8000" spellcheck="false" placeholder="粘贴岗位描述、截图（Ctrl+V），或上传多份 TXT / DOCX / PDF / 图片；OCR 后由 LLM 整理（最多 8,000 字符）"></textarea>
+                <div class="file-preview-list multi" id="jd-file-preview" aria-live="polite"></div>
                 <span class="input-status" id="jd-file-status" role="status" hidden></span>
               </label>
             </div>
@@ -398,7 +400,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="assets/config.js?v=4"></script>
-    <script src="assets/app.js?v=21"></script>
+    <script src="assets/config.js?v=5"></script>
+    <script src="assets/app.js?v=22"></script>
   </body>
 </html>

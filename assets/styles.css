@@ -705,6 +705,25 @@ h3 {
   gap: 14px;
 }
 
+.input-stack {
+  display: grid;
+  gap: 18px;
+}
+
+.document-field {
+  position: relative;
+}
+
+.document-field.file-backed textarea {
+  min-height: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+  resize: none;
+}
+
 .analysis-page textarea {
   height: clamp(240px, 36svh, 420px);
   min-height: 240px;
@@ -745,6 +764,132 @@ h3 {
   inset: 0;
   opacity: 0;
   cursor: pointer;
+}
+
+.file-preview-list {
+  display: grid;
+  gap: 12px;
+}
+
+.file-preview-list:empty {
+  display: none;
+}
+
+.file-preview-list.multi {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.file-preview-card {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+  min-height: 138px;
+  padding: 20px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: var(--radius);
+  background: rgba(255, 250, 247, 0.86);
+}
+
+.file-preview-icon {
+  position: relative;
+  display: grid;
+  place-items: end center;
+  width: 52px;
+  height: 60px;
+  padding-bottom: 9px;
+  border-radius: 8px;
+  color: #ffffff;
+  background: #ff6a00;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.file-preview-icon::before {
+  position: absolute;
+  top: 8px;
+  left: 13px;
+  width: 20px;
+  height: 14px;
+  content: "";
+  border-radius: 3px;
+  background:
+    radial-gradient(circle at 5px 5px, #ffffff 0 3px, transparent 4px),
+    linear-gradient(135deg, transparent 45%, #ffffff 46% 55%, transparent 56%),
+    linear-gradient(45deg, transparent 45%, #ffffff 46% 55%, transparent 56%);
+  opacity: 0.95;
+}
+
+.file-preview-icon::after {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 16px;
+  height: 16px;
+  content: "";
+  border-bottom-left-radius: 6px;
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.file-preview-icon[data-ext="PDF"] {
+  background: #ef4444;
+}
+
+.file-preview-icon[data-ext="TXT"] {
+  background: #64748b;
+}
+
+.file-preview-icon[data-ext="PNG"],
+.file-preview-icon[data-ext="JPG"],
+.file-preview-icon[data-ext="JPEG"],
+.file-preview-icon[data-ext="WEBP"] {
+  background: #0071e3;
+}
+
+.file-preview-body {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.file-preview-body strong {
+  overflow: hidden;
+  max-width: 100%;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: clamp(18px, 2vw, 24px);
+  font-weight: 650;
+}
+
+.file-preview-body span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.file-preview-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.file-preview-actions button {
+  padding: 0;
+  border: 0;
+  color: var(--blue);
+  background: transparent;
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.file-preview-actions button + button::before {
+  margin-right: 10px;
+  color: var(--line);
+  content: "|";
 }
 
 .field {

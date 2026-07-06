@@ -12,6 +12,7 @@ const state = {
   authRecoveryMode: false,
   currentUser: null,
   historyRecords: [],
+  resumeSource: null,
   jdSources: [],
   jdTextEditedByUser: false,
   jdOcrWorkerPromise: null,
@@ -30,7 +31,7 @@ const MAX_JOB_CHARS = 8000;
 const MAX_TOTAL_INPUT_CHARS = 16000;
 const AUTH_TOKEN_STORAGE_KEY = "airjm_auth_token";
 const THINKING_MODE_STORAGE_KEY = "airjm_thinking_enabled";
-const API_BASE_URL = window.APP_CONFIG?.API_BASE_URL || "https://api.jobmatcher.top";
+const API_BASE_URL = window.API_BASE_URL || window.APP_CONFIG?.API_BASE_URL || "https://api.jobmatcher.top";
 const SUPABASE_URL = window.APP_CONFIG?.supabaseUrl || "";
 const SUPABASE_PUBLISHABLE_KEY = window.APP_CONFIG?.supabasePublishableKey || "";
 const PAGE_NAMES = ["start", "analyze", "capabilities", "result", "history", "privacy"];
@@ -122,6 +123,8 @@ const elements = {
   thinkingHint: document.querySelector("#thinking-hint"),
   resumeFileStatus: document.querySelector("#resume-file-status"),
   jdFileStatus: document.querySelector("#jd-file-status"),
+  resumeFilePreview: document.querySelector("#resume-file-preview"),
+  jdFilePreview: document.querySelector("#jd-file-preview"),
   resultPanel: document.querySelector("#result"),
   authOpen: document.querySelector("#auth-open"),
   authLogout: document.querySelector("#auth-logout"),
@@ -268,6 +271,7 @@ function clearCurrentJob({ returnToAnalyzer = false } = {}) {
   elements.jdImageFile.value = "";
   state.jdSources = [];
   state.jdTextEditedByUser = false;
+  renderFilePreviews("jd");
   state.lastResult = null;
   state.capabilityDiscovery = null;
   state.capabilityAssessments = [];
@@ -288,12 +292,14 @@ function clearCurrentJob({ returnToAnalyzer = false } = {}) {
 function clearCurrentResume() {
   elements.resumeInput.value = "";
   elements.resumeFile.value = "";
+  state.resumeSource = null;
   state.lastResult = null;
   state.capabilityDiscovery = null;
   state.capabilityAssessments = [];
   state.pendingAnalysis = null;
   renderEmptyResult();
   clearInputStatus("resume");
+  renderFilePreviews("resume");
   hideLoading();
   elements.runNote.textContent = elements.jobInput.value.trim()
     ? "岗位 JD 已保留，请输入或上传新的简历"
@@ -304,9 +310,11 @@ function clearCurrentResume() {
 function isResumeFile(file) {
   const name = file.name.toLowerCase();
   return (
+    name.endsWith(".txt") ||
     name.endsWith(".pdf") ||
     name.endsWith(".docx") ||
     name.endsWith(".doc") ||
+    file.type === "text/plain" ||
     file.type === "application/pdf" ||
     file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
   );
@@ -315,10 +323,10 @@ function isResumeFile(file) {
 function getResumeFileValidationError(file) {
   const name = file.name.toLowerCase();
   if (name.endsWith(".doc")) {
-    return "当前暂不支持旧版 .doc，请先在 Word 中另存为 .docx，或导出为可复制文本的 PDF。";
+    return "当前暂不支持旧版 .doc，请先另存为 .docx、.pdf 或 .txt 后上传。";
   }
-  if (!name.endsWith(".docx") && !name.endsWith(".pdf") && !isResumeFile(file)) {
-    return "当前只支持 .docx 和可复制文本的 .pdf 简历。";
+  if (!name.endsWith(".docx") && !name.endsWith(".pdf") && !name.endsWith(".txt") && !isResumeFile(file)) {
+    return "当前支持 .txt、.docx 和可复制文本的 .pdf 简历。";
   }
   return "";
 }
@@ -327,11 +335,17 @@ function isImageFile(file) {
   return file.type.startsWith("image/") || /\.(png|jpe?g|webp)$/i.test(file.name);
 }
 
+function isTextFile(file) {
+  return file.type === "text/plain" || /\.txt$/i.test(file.name);
+}
+
 function isJdDocumentFile(file) {
   const name = file.name.toLowerCase();
   return (
-    name.endsWith(".docx")
+    name.endsWith(".txt")
+    || name.endsWith(".docx")
     || name.endsWith(".pdf")
+    || file.type === "text/plain"
     || file.type === "application/pdf"
     || file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
   );
@@ -379,6 +393,84 @@ function findDroppedFiles(event, matcher) {
 
 function normalizeFileName(file, fallback) {
   return file?.name && file.name !== "image.png" ? file.name : fallback;
+}
+
+function getFileExtension(name = "") {
+  const match = String(name).match(/\.([a-z0-9]+)$/i);
+  return match ? match[1].toUpperCase() : "FILE";
+}
+
+function formatFileSize(size = 0) {
+  if (!size) return "";
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
+  return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function createFileCard(source, target, index = 0) {
+  const card = document.createElement("article");
+  card.className = "file-preview-card";
+  card.dataset.target = target;
+  if (source.key) card.dataset.sourceKey = source.key;
+
+  const icon = document.createElement("div");
+  icon.className = "file-preview-icon";
+  icon.dataset.ext = getFileExtension(source.name);
+  icon.textContent = getFileExtension(source.name);
+
+  const body = document.createElement("div");
+  body.className = "file-preview-body";
+
+  const title = document.createElement("strong");
+  title.textContent = source.name || (target === "resume" ? "简历文件" : `JD 来源 ${index + 1}`);
+
+  const meta = document.createElement("span");
+  meta.textContent = [
+    getFileExtension(source.name),
+    source.sizeText,
+    source.kindLabel,
+  ].filter(Boolean).join(" · ");
+
+  const actions = document.createElement("div");
+  actions.className = "file-preview-actions";
+
+  if (target === "resume") {
+    const replaceButton = document.createElement("button");
+    replaceButton.type = "button";
+    replaceButton.dataset.fileAction = "replace-resume";
+    replaceButton.textContent = "重新上传";
+    actions.append(replaceButton);
+  }
+
+  const removeButton = document.createElement("button");
+  removeButton.type = "button";
+  removeButton.dataset.fileAction = target === "resume" ? "remove-resume" : "remove-jd";
+  removeButton.textContent = "删除";
+  actions.append(removeButton);
+
+  body.append(title, meta, actions);
+  card.append(icon, body);
+  return card;
+}
+
+function renderFilePreviews(target) {
+  const container = target === "resume" ? elements.resumeFilePreview : elements.jdFilePreview;
+  const field = container?.closest(".document-field");
+  if (!container) return;
+  container.replaceChildren();
+
+  if (target === "resume") {
+    if (state.resumeSource) {
+      container.append(createFileCard(state.resumeSource, "resume"));
+    }
+    field?.classList.toggle("file-backed", Boolean(state.resumeSource));
+    return;
+  }
+
+  state.jdSources.forEach((source, index) => {
+    container.append(createFileCard(source, "jd", index));
+  });
+  field?.classList.toggle("file-backed", state.jdSources.length > 0);
 }
 
 function cleanJobDescriptionText(rawText) {
@@ -516,9 +608,39 @@ function buildCombinedJdSourceText() {
     .slice(0, MAX_JOB_CHARS);
 }
 
+async function refreshJobTextFromSources() {
+  const combinedText = buildCombinedJdSourceText();
+  if (!combinedText) {
+    elements.jobInput.value = "";
+    clearInputStatus("jd");
+    renderFilePreviews("jd");
+    return;
+  }
+
+  try {
+    if (state.apiAvailable && state.llmConfigured) {
+      const normalized = await normalizeJobTextViaApi(combinedText);
+      applyNormalizedJobText(normalized, `${state.jdSources.length} 个 JD 来源`);
+    } else {
+      applyCleanedJobText(combinedText, "JD 来源");
+    }
+  } catch (error) {
+    applyCleanedJobText(combinedText, "JD 来源");
+    elements.runNote.textContent = `JD 已删除并重新合并；LLM 整理暂未完成：${error.message}`;
+  }
+  setInputStatus("jd", `${state.jdSources.length} 个 JD 来源已保留`, state.jdSources.map((item) => item.name).join("、"));
+  renderFilePreviews("jd");
+}
+
+async function removeJdSource(sourceKey) {
+  state.jdSources = state.jdSources.filter((source) => source.key !== sourceKey);
+  state.jdTextEditedByUser = false;
+  await refreshJobTextFromSources();
+}
+
 async function handleResumeFile(file, source = "上传") {
   showLoading("正在读取简历文件");
-  updateProgress(18, "上传简历", "正在提取 Word/PDF 中的文本");
+  updateProgress(18, "上传简历", "正在为分析提取文件文本");
 
   try {
     const validationError = getResumeFileValidationError(file);
@@ -527,8 +649,15 @@ async function handleResumeFile(file, source = "上传") {
     }
     const result = await extractResumeFile(file);
     elements.resumeInput.value = result.text;
+    state.resumeSource = {
+      key: `resume:${normalizeFileName(file, result.filename || "resume")}:${file.size || 0}:${file.lastModified || Date.now()}`,
+      name: result.filename || normalizeFileName(file, "简历文件"),
+      sizeText: formatFileSize(file.size),
+      kindLabel: `${source}文件 · 已用于分析`,
+    };
+    renderFilePreviews("resume");
     updateProgress(100, "简历已提取", `${result.filename || file.name || "文件"}：${result.character_count} 字符`);
-    setInputStatus("resume", "简历文件已导入", result.filename || normalizeFileName(file, "剪贴板简历文件"));
+    setInputStatus("resume", "简历文件已导入", "已在后台提取文本用于匹配分析");
     elements.runNote.textContent = result.warnings?.length ? result.warnings.join("；") : `${source}简历文本已提取`;
   } catch (error) {
     elements.runNote.textContent = error.message;
@@ -577,6 +706,8 @@ async function handleJdFiles(inputFiles, source = "上传") {
           key: getJdSourceKey(file),
           name: normalizeFileName(file, `剪贴板 JD 截图 ${state.jdSources.length + index + 1}`),
           rawText: text,
+          sizeText: formatFileSize(file.size),
+          kindLabel: "图片 OCR",
         });
       } else {
         const result = await extractJobDocument(file);
@@ -584,6 +715,8 @@ async function handleJdFiles(inputFiles, source = "上传") {
           key: getJdSourceKey(file),
           name: result.filename || file.name,
           rawText: result.text,
+          sizeText: formatFileSize(file.size),
+          kindLabel: isTextFile(file) ? "TXT 文本" : "文档解析",
         });
         if (result.warnings?.length) warnings.push(...result.warnings);
       }
@@ -594,6 +727,7 @@ async function handleJdFiles(inputFiles, source = "上传") {
     }
 
     addJdSources(extractedSources);
+    renderFilePreviews("jd");
     const combinedText = buildCombinedJdSourceText();
     const sourceLabel = `${source}${state.jdSources.length} 个 JD 文件`;
 
@@ -1198,7 +1332,24 @@ async function analyzeViaApi(resumeText, jobText) {
   );
 }
 
+async function extractPlainTextFile(file) {
+  const text = (await file.text()).trim();
+  if (!text) {
+    throw new Error("文件中没有读取到文本内容。");
+  }
+  return {
+    filename: file.name,
+    text,
+    character_count: text.length,
+    warnings: [],
+  };
+}
+
 async function extractResumeFile(file) {
+  if (isTextFile(file)) {
+    return extractPlainTextFile(file);
+  }
+
   const apiReady = await ensureApiAvailable();
   if (!apiReady) {
     throw new Error("云端 API 暂时未连接，请确认后端服务是否可访问。");
@@ -1218,6 +1369,10 @@ async function extractResumeFile(file) {
 }
 
 async function extractJobDocument(file) {
+  if (isTextFile(file)) {
+    return extractPlainTextFile(file);
+  }
+
   const apiReady = await ensureApiAvailable();
   if (!apiReady) {
     throw new Error("云端 API 暂时未连接，DOCX/PDF 岗位文件无法解析。");
@@ -1412,8 +1567,11 @@ async function handlePastedJobText(rawText) {
       key: `pasted-text:${Date.now()}:${text.length}`,
       name: `粘贴文本 ${state.jdSources.length + 1}`,
       rawText: text,
+      sizeText: `${text.length} 字符`,
+      kindLabel: "手动粘贴",
     },
   ]);
+  renderFilePreviews("jd");
 
   const combinedText = buildCombinedJdSourceText();
   showLoading("正在智能整理岗位 JD");
@@ -2393,10 +2551,13 @@ function bindEvents() {
   });
 
   elements.useExampleButton.addEventListener("click", () => {
+    state.resumeSource = null;
     state.jdSources = [];
     state.jdTextEditedByUser = false;
     elements.resumeInput.value = SAMPLE_RESUME;
     elements.jobInput.value = SAMPLE_JOB;
+    renderFilePreviews("resume");
+    renderFilePreviews("jd");
     setInputStatus("resume", "示例简历已载入", "可直接开始分析");
     setInputStatus("jd", "示例 JD 已载入", "可直接开始分析");
     elements.exampleModal.hidden = true;
@@ -2415,6 +2576,27 @@ function bindEvents() {
     const files = [...(elements.jdImageFile.files || [])];
     if (!files.length) return;
     await handleJdFiles(files);
+  });
+
+  elements.resumeFilePreview.addEventListener("click", (event) => {
+    const action = event.target.closest("[data-file-action]")?.dataset.fileAction;
+    if (!action) return;
+    if (action === "replace-resume") {
+      elements.resumeFile.click();
+      return;
+    }
+    if (action === "remove-resume") {
+      clearCurrentResume();
+    }
+  });
+
+  elements.jdFilePreview.addEventListener("click", async (event) => {
+    const action = event.target.closest("[data-file-action]")?.dataset.fileAction;
+    if (action !== "remove-jd") return;
+    const card = event.target.closest(".file-preview-card");
+    const sourceKey = card?.dataset.sourceKey;
+    if (!sourceKey) return;
+    await removeJdSource(sourceKey);
   });
 
   elements.resumeInput.addEventListener("paste", async (event) => {
@@ -2471,7 +2653,9 @@ function bindEvents() {
 
   elements.resumeInput.addEventListener("input", () => {
     if (!elements.resumeInput.value.trim()) {
+      state.resumeSource = null;
       clearInputStatus("resume");
+      renderFilePreviews("resume");
     }
   });
 
@@ -2480,6 +2664,7 @@ function bindEvents() {
       state.jdSources = [];
       state.jdTextEditedByUser = false;
       clearInputStatus("jd");
+      renderFilePreviews("jd");
     } else {
       state.jdTextEditedByUser = true;
     }
@@ -2568,10 +2753,13 @@ function bindEvents() {
   });
 
   elements.loadSampleButton.addEventListener("click", () => {
+    state.resumeSource = null;
     state.jdSources = [];
     state.jdTextEditedByUser = false;
     elements.resumeInput.value = SAMPLE_RESUME;
     elements.jobInput.value = SAMPLE_JOB;
+    renderFilePreviews("resume");
+    renderFilePreviews("jd");
     setInputStatus("resume", "示例简历已载入", "可直接开始分析");
     setInputStatus("jd", "示例 JD 已载入", "可直接开始分析");
     hideLoading();
@@ -2593,6 +2781,7 @@ function bindEvents() {
     elements.resumeInput.value = "";
     elements.jobInput.value = "";
     state.lastResult = null;
+    state.resumeSource = null;
     state.jdSources = [];
     state.jdTextEditedByUser = false;
     state.capabilityDiscovery = null;
@@ -2601,6 +2790,8 @@ function bindEvents() {
     renderEmptyResult();
     clearInputStatus("resume");
     clearInputStatus("jd");
+    renderFilePreviews("resume");
+    renderFilePreviews("jd");
     hideLoading();
     elements.runNote.textContent = getReadinessNote();
   });
