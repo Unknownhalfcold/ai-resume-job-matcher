@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>AI Resume Job Matcher</title>
-    <link rel="stylesheet" href="assets/styles.css?v=13">
+    <link rel="stylesheet" href="assets/styles.css?v=14">
   </head>
   <body>
     <header class="topbar">
@@ -206,66 +206,41 @@
             </div>
           </div>
 
-          <div class="result-layout">
-            <div class="result-left">
-              <div class="score-board" aria-live="polite">
-                <div class="score-ring" id="score-ring" style="--score: 0">
-                  <div>
-                    <strong id="score-value">--</strong>
-                    <span>/100</span>
-                  </div>
-                </div>
-                <div class="score-meta">
-                  <p class="score-label" id="score-label">等待分析</p>
-                  <p id="score-detail">输入简历和岗位 JD 后生成结果</p>
-                  <div class="metric-row">
-                    <span><strong id="matched-weight">0</strong> 已匹配权重</span>
-                    <span><strong id="total-weight">0</strong> 岗位总权重</span>
-                  </div>
+          <div class="result-experience">
+            <button class="score-board score-board-button" id="score-breakdown-trigger" type="button" aria-label="查看评分过程">
+              <div class="score-ring" id="score-ring" style="--score: 0">
+                <div>
+                  <strong id="score-value">--</strong>
+                  <span>/100</span>
                 </div>
               </div>
-
-              <section class="result-block scoring-process" aria-labelledby="scoring-process-title">
-                <h3 id="scoring-process-title">评分过程</h3>
-                <div class="scoring-steps" id="scoring-steps"></div>
-              </section>
-
-              <section class="result-block capability-breakdown" aria-labelledby="capability-title">
-                <h3 id="capability-title">能力维度</h3>
-                <div class="category-grid" id="category-summary"></div>
-              </section>
-
-              <section class="result-block suggestions" aria-labelledby="suggestion-title" hidden>
-                <h3 id="suggestion-title">基础规则建议</h3>
-                <ol id="suggestion-list"></ol>
-              </section>
-            </div>
-
-            <div class="result-right">
-              <section class="result-block priority-gaps" aria-labelledby="priority-title">
-                <h3 id="priority-title">基础 Gap Evidence</h3>
-                <div class="priority-list" id="priority-list"></div>
-              </section>
-
-              <div class="result-grid">
-                <section class="result-block" aria-labelledby="matched-title">
-                  <h3 id="matched-title">基础匹配项</h3>
-                  <div class="pill-list" id="matched-list"></div>
-                </section>
-
-                <section class="result-block" aria-labelledby="missing-title">
-                  <h3 id="missing-title">基础缺口项</h3>
-                  <div class="pill-list" id="missing-list"></div>
-                </section>
+              <div class="score-meta">
+                <p class="score-label" id="score-label">等待分析</p>
+                <p id="score-detail">输入简历和岗位 JD 后生成结果；生成后可点击分数查看评分过程。</p>
+                <div class="metric-row">
+                  <span><strong id="matched-weight">0</strong> 已匹配权重</span>
+                  <span><strong id="total-weight">0</strong> 岗位总权重</span>
+                </div>
               </div>
-            </div>
-          </div>
+            </button>
 
-          <section class="result-block ai-advice" aria-labelledby="ai-advice-title">
+            <section class="star-result-shell" aria-labelledby="star-title">
+              <div class="section-heading compact">
+                <div>
+                  <p class="eyebrow">STAR Review</p>
+                  <h3 id="star-title">用四个维度看清差距</h3>
+                </div>
+                <p>点击卡片查看对应证据、缺口和下一步动作。</p>
+              </div>
+              <div class="star-card-grid" id="star-card-grid" aria-live="polite"></div>
+              <article class="star-detail-panel" id="star-detail-panel" aria-live="polite"></article>
+            </section>
+
+            <section class="result-block ai-advice" aria-labelledby="ai-advice-title">
             <div class="ai-advice-heading">
               <div>
                 <h3 id="ai-advice-title">AI 建议层</h3>
-                <p>默认随分析生成；若云端超时，可在这里重新生成。</p>
+                <p>AI 会把建议整理进上方 STAR 卡片；若云端超时，可在这里重新生成。</p>
               </div>
               <button class="button secondary" id="ai-advice-button" type="button" disabled>重新生成 AI 分析</button>
             </div>
@@ -273,6 +248,34 @@
             <p class="ai-advice-status" id="ai-advice-status">完成基础分析后可生成</p>
             <div class="ai-advice-content" id="ai-advice-content"></div>
           </section>
+          </div>
+
+          <div class="legacy-result-data" hidden>
+            <section class="result-block scoring-process" aria-labelledby="scoring-process-title">
+              <h3 id="scoring-process-title">评分过程</h3>
+              <div class="scoring-steps" id="scoring-steps"></div>
+            </section>
+            <section class="result-block capability-breakdown" aria-labelledby="capability-title">
+              <h3 id="capability-title">能力维度</h3>
+              <div class="category-grid" id="category-summary"></div>
+            </section>
+            <section class="result-block suggestions" aria-labelledby="suggestion-title">
+              <h3 id="suggestion-title">基础规则建议</h3>
+              <ol id="suggestion-list"></ol>
+            </section>
+            <section class="result-block priority-gaps" aria-labelledby="priority-title">
+              <h3 id="priority-title">基础 Gap Evidence</h3>
+              <div class="priority-list" id="priority-list"></div>
+            </section>
+            <section class="result-block" aria-labelledby="matched-title">
+              <h3 id="matched-title">基础匹配项</h3>
+              <div class="pill-list" id="matched-list"></div>
+            </section>
+            <section class="result-block" aria-labelledby="missing-title">
+              <h3 id="missing-title">基础缺口项</h3>
+              <div class="pill-list" id="missing-list"></div>
+            </section>
+          </div>
         </section>
       </section>
 
@@ -365,6 +368,20 @@
       </div>
     </div>
 
+    <div class="dialog-modal" id="score-breakdown-modal" hidden>
+      <div class="dialog-card score-breakdown-card" role="dialog" aria-modal="true" aria-labelledby="score-breakdown-title">
+        <div class="auth-heading">
+          <div>
+            <p class="eyebrow">Scoring</p>
+            <h2 id="score-breakdown-title">评分过程</h2>
+          </div>
+          <button class="button ghost" id="score-breakdown-close" type="button">关闭</button>
+        </div>
+        <p class="score-breakdown-note" id="score-breakdown-note">点击综合分数后，可在这里查看从关键词、语义、经历到最终分的计算链路。</p>
+        <div class="score-breakdown-steps" id="score-breakdown-steps"></div>
+      </div>
+    </div>
+
     <div class="dialog-modal" id="auth-modal" hidden>
       <form class="dialog-card auth-card" id="auth-form" aria-labelledby="auth-title">
         <div class="auth-heading">
@@ -401,6 +418,6 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="assets/config.js?v=5"></script>
-    <script src="assets/app.js?v=22"></script>
+    <script src="assets/app.js?v=23"></script>
   </body>
 </html>

@@ -95,6 +95,11 @@ const elements = {
   scoreValue: document.querySelector("#score-value"),
   scoreLabel: document.querySelector("#score-label"),
   scoreDetail: document.querySelector("#score-detail"),
+  scoreBreakdownTrigger: document.querySelector("#score-breakdown-trigger"),
+  scoreBreakdownModal: document.querySelector("#score-breakdown-modal"),
+  scoreBreakdownClose: document.querySelector("#score-breakdown-close"),
+  scoreBreakdownNote: document.querySelector("#score-breakdown-note"),
+  scoreBreakdownSteps: document.querySelector("#score-breakdown-steps"),
   scoringSteps: document.querySelector("#scoring-steps"),
   matchedWeight: document.querySelector("#matched-weight"),
   totalWeight: document.querySelector("#total-weight"),
@@ -103,6 +108,8 @@ const elements = {
   categorySummary: document.querySelector("#category-summary"),
   priorityList: document.querySelector("#priority-list"),
   suggestionList: document.querySelector("#suggestion-list"),
+  starCardGrid: document.querySelector("#star-card-grid"),
+  starDetailPanel: document.querySelector("#star-detail-panel"),
   aiAdviceStatus: document.querySelector("#ai-advice-status"),
   aiAdviceContent: document.querySelector("#ai-advice-content"),
   runtimeStatus: document.querySelector("#runtime-status"),
@@ -2140,9 +2147,253 @@ function createAdviceCard(title, bodyItems) {
   return card;
 }
 
-function renderScoringProcess(finalScoring = null, keywordScore = 0) {
-  elements.scoringSteps.replaceChildren();
-  const steps = finalScoring?.steps || [
+const STAR_DIMENSIONS = [
+  {
+    key: "situation",
+    label: "S",
+    title: "岗位场景",
+    question: "这个岗位真正需要你进入什么业务或团队语境？",
+  },
+  {
+    key: "task",
+    label: "T",
+    title: "核心任务",
+    question: "JD 希望你具体承担哪些任务？",
+  },
+  {
+    key: "action",
+    label: "A",
+    title: "行动证据",
+    question: "你的简历是否证明你做过相似动作？",
+  },
+  {
+    key: "result",
+    label: "R",
+    title: "结果证明",
+    question: "你的经历是否有可验证的产出和影响？",
+  },
+];
+
+function compactText(value, fallback = "暂无明确证据") {
+  if (Array.isArray(value)) {
+    return value.filter(Boolean).join("；") || fallback;
+  }
+  return String(value || "").trim() || fallback;
+}
+
+function takeItems(items, limit = 3) {
+  return (items || []).filter(Boolean).slice(0, limit);
+}
+
+function getFallbackStarInsights(result = {}) {
+  const topGap = result.priority_gaps?.[0];
+  const matchedNames = takeItems(result.matched_keywords?.map((item) => item.name), 4);
+  const missingNames = takeItems(result.missing_keywords?.map((item) => item.name), 4);
+  const topSuggestion = result.suggestion_items?.[0];
+
+  return [
+    {
+      key: "situation",
+      status: result.score >= 60 ? "已部分对齐" : "需要补充",
+      score: result.score,
+      jd: matchedNames.length ? `JD 中已识别到：${matchedNames.join("、")}` : "已根据 JD 建立基础岗位画像。",
+      resume: "当前为规则层初步判断，AI 语义判断完成后会更细。",
+      gap: topGap ? topGap.suggestion : "建议补充更贴近岗位业务场景的项目描述。",
+      action: "把最相关的项目放到简历靠前位置，并写清楚它服务的业务、用户或团队目标。",
+    },
+    {
+      key: "task",
+      status: missingNames.length ? "存在缺口" : "覆盖较好",
+      score: result.score,
+      jd: missingNames.length ? `优先关注：${missingNames.join("、")}` : "主要任务关键词已覆盖。",
+      resume: matchedNames.length ? `已体现：${matchedNames.join("、")}` : "简历暂未体现明显任务证据。",
+      gap: topGap ? `${topGap.name}：${topGap.suggestion}` : "继续强化岗位核心任务的直接证据。",
+      action: topSuggestion?.suggestion || "为每个核心任务补一句你做了什么、用什么方法、产出是什么。",
+    },
+    {
+      key: "action",
+      status: "需要证据",
+      score: result.score,
+      jd: "JD 不只看技能名，也看你是否真的执行过类似动作。",
+      resume: "规则层只能看到关键词，无法完全判断行动深度。",
+      gap: "如果简历只写“参与/了解”，说服力会偏弱。",
+      action: "用动词开头改写经历，例如“拆解需求、设计流程、分析数据、推动上线”。",
+    },
+    {
+      key: "result",
+      status: "建议量化",
+      score: result.score,
+      jd: "更强的候选人通常会证明结果，而不只是列职责。",
+      resume: "当前结果证据需要进一步检查。",
+      gap: "缺少可验证结果会影响最终说服力。",
+      action: "补充数字、交付物、上线状态、用户反馈或复盘结论。",
+    },
+  ];
+}
+
+function getAiStarInsights(result = {}, response = null) {
+  const advice = response?.advice;
+  if (!advice) return getFallbackStarInsights(result);
+
+  const normalizedJob = advice.normalized_job || {};
+  const context = advice.company_role_context || {};
+  const evidenceReview = advice.evidence_review || [];
+  const quantifiedGaps = advice.quantified_gaps || [];
+  const topActions = advice.top_actions || [];
+  const rewrites = advice.rewrite_examples || [];
+  const hr = advice.hr_perspective || {};
+
+  const responsibilityText = compactText(normalizedJob.core_responsibilities, "JD 中未返回明确职责，请查看原始岗位描述。");
+  const requirementText = compactText(
+    takeItems((normalizedJob.requirements || []).map((item) => `${importanceText(item.importance)}：${item.title}`), 4),
+    "未返回结构化岗位要求。",
+  );
+  const evidenceText = compactText(
+    takeItems(evidenceReview.map((item) => `${item.title}：${levelLabel(item.level)}，${item.resume_evidence || item.gap}`), 3),
+    "简历证据需要进一步补充。",
+  );
+  const gapText = compactText(
+    takeItems(quantifiedGaps.map((item) => `${item.requirement}：${item.recommended_fix}`), 3),
+    "暂无量化缺口。",
+  );
+  const actionText = compactText(
+    takeItems(topActions.map((item) => `${priorityText(item.priority)}｜${item.target_section}：${item.action}`), 3),
+    "建议补充与岗位要求直接相关的 STAR 经历。",
+  );
+  const rewriteText = compactText(
+    takeItems(rewrites.map((item) => item.after), 2),
+    "生成 AI 建议后会展示更具体的改写示例。",
+  );
+  const finalScore = response.final_scoring?.score ?? result.score;
+  const evidenceScore = Math.round(
+    evidenceReview.reduce((sum, item) => sum + (Number(item.evidence_score) || 0), 0) / Math.max(1, evidenceReview.length),
+  );
+
+  return [
+    {
+      key: "situation",
+      status: context.company_name ? `${context.company_name} 语境` : "岗位语境",
+      score: finalScore,
+      jd: `${normalizedJob.role_title || "目标岗位"}：${normalizedJob.jd_summary || responsibilityText}`,
+      resume: compactText(hr.first_screen_strengths, "简历中暂未形成特别清晰的初筛亮点。"),
+      gap: compactText(hr.first_screen_concerns, "需要让 HR 更快理解你为什么适合这个岗位。"),
+      action: context.hiring_context_summary || "把经历放进具体业务场景，而不是只罗列技能。",
+    },
+    {
+      key: "task",
+      status: "任务匹配",
+      score: response.final_scoring?.semantic_match_score ?? finalScore,
+      jd: responsibilityText,
+      resume: requirementText,
+      gap: gapText,
+      action: actionText,
+    },
+    {
+      key: "action",
+      status: "证据强度",
+      score: Number.isFinite(evidenceScore) ? evidenceScore : finalScore,
+      jd: "岗位要求需要被项目动作证明，而不只是出现关键词。",
+      resume: evidenceText,
+      gap: gapText,
+      action: actionText,
+    },
+    {
+      key: "result",
+      status: "结果表达",
+      score: response.final_scoring?.resume_quality_score ?? finalScore,
+      jd: "最终筛选会看可验证产出：指标、交付物、影响或复盘。",
+      resume: rewriteText,
+      gap: compactText((advice.credential_review || []).map((item) => `${item.name}：${item.rationale}`), "证书、奖项或成果需要与岗位相关性连接起来。"),
+      action: "把经历改成 STAR：场景一句话，任务一句话，动作两句话，结果用数字或交付物收尾。",
+    },
+  ];
+}
+
+function getStarInsights(result = state.lastResult) {
+  return getAiStarInsights(result, result?.ai_advice);
+}
+
+function createStarCard(insight, index, activeKey) {
+  const config = STAR_DIMENSIONS.find((item) => item.key === insight.key) || STAR_DIMENSIONS[index];
+  const card = document.createElement("button");
+  card.className = "star-card";
+  card.type = "button";
+  card.dataset.starKey = insight.key;
+  card.setAttribute("aria-expanded", String(insight.key === activeKey));
+
+  const badge = document.createElement("span");
+  badge.className = "star-badge";
+  badge.textContent = config.label;
+
+  const body = document.createElement("span");
+  body.className = "star-card-body";
+
+  const title = document.createElement("strong");
+  title.textContent = config.title;
+
+  const question = document.createElement("span");
+  question.textContent = config.question;
+
+  const footer = document.createElement("span");
+  footer.className = "star-card-footer";
+  footer.textContent = `${insight.status || "待分析"} · ${Math.max(0, Math.min(100, Math.round(insight.score || 0)))}/100`;
+
+  body.append(title, question, footer);
+  card.append(badge, body);
+  return card;
+}
+
+function renderStarDetail(insight) {
+  const config = STAR_DIMENSIONS.find((item) => item.key === insight?.key) || STAR_DIMENSIONS[0];
+  elements.starDetailPanel.replaceChildren();
+
+  const heading = document.createElement("div");
+  heading.className = "star-detail-heading";
+  const badge = document.createElement("span");
+  badge.className = "star-badge";
+  badge.textContent = config.label;
+  const titleGroup = document.createElement("div");
+  const title = document.createElement("h4");
+  title.textContent = config.title;
+  const subtitle = document.createElement("p");
+  subtitle.textContent = config.question;
+  titleGroup.append(title, subtitle);
+  heading.append(badge, titleGroup);
+
+  const detailGrid = document.createElement("div");
+  detailGrid.className = "star-detail-grid";
+
+  [
+    ["JD 要求", insight.jd],
+    ["简历证据", insight.resume],
+    ["当前差距", insight.gap],
+    ["下一步动作", insight.action],
+  ].forEach(([label, text]) => {
+    const item = document.createElement("section");
+    const itemTitle = document.createElement("strong");
+    itemTitle.textContent = label;
+    const paragraph = document.createElement("p");
+    paragraph.textContent = compactText(text);
+    item.append(itemTitle, paragraph);
+    detailGrid.append(item);
+  });
+
+  elements.starDetailPanel.append(heading, detailGrid);
+}
+
+function renderStarInsights(result = state.lastResult, activeKey = null) {
+  if (!elements.starCardGrid || !elements.starDetailPanel) return;
+  const insights = result ? getStarInsights(result) : getFallbackStarInsights({ score: 0 });
+  const nextActiveKey = activeKey || insights[0]?.key || "situation";
+  elements.starCardGrid.replaceChildren();
+  insights.forEach((insight, index) => {
+    elements.starCardGrid.append(createStarCard(insight, index, nextActiveKey));
+  });
+  renderStarDetail(insights.find((item) => item.key === nextActiveKey) || insights[0]);
+}
+
+function getScoringSteps(finalScoring = null, keywordScore = 0) {
+  return finalScoring?.steps || [
     { step: 1, title: "关键词匹配", value: keywordScore },
     { step: 2, title: "语义匹配", value: "待 AI" },
     { step: 3, title: "经历匹配", value: "待 AI" },
@@ -2154,6 +2405,10 @@ function renderScoringProcess(finalScoring = null, keywordScore = 0) {
     { step: 9, title: "分数上限", value: "待 AI" },
     { step: 10, title: "最终分数", value: "待 AI" },
   ];
+}
+
+function renderScoringSteps(container, steps) {
+  container.replaceChildren();
   steps.forEach((step) => {
     const item = document.createElement("div");
     item.className = "scoring-step";
@@ -2168,8 +2423,40 @@ function renderScoringProcess(finalScoring = null, keywordScore = 0) {
       : String(step.value);
     label.append(title, value);
     item.append(number, label);
-    elements.scoringSteps.append(item);
+    container.append(item);
   });
+}
+
+function renderScoringProcess(finalScoring = null, keywordScore = 0) {
+  const steps = getScoringSteps(finalScoring, keywordScore);
+  renderScoringSteps(elements.scoringSteps, steps);
+  if (elements.scoreBreakdownSteps) {
+    renderScoringSteps(elements.scoreBreakdownSteps, steps);
+  }
+  if (elements.scoreBreakdownNote) {
+    elements.scoreBreakdownNote.textContent = finalScoring?.formula
+      || `关键词初步公式：${state.lastResult?.score_details?.formula || "等待分析结果"}`;
+  }
+}
+
+function animateScore(score) {
+  const target = Math.max(0, Math.min(100, Math.round(Number(score) || 0)));
+  const start = Number(elements.scoreValue.textContent) || 0;
+  const duration = 900;
+  const startedAt = performance.now();
+
+  function tick(now) {
+    const progress = Math.min(1, (now - startedAt) / duration);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    const value = Math.round(start + (target - start) * eased);
+    elements.scoreRing.style.setProperty("--score", value);
+    elements.scoreValue.textContent = value;
+    if (progress < 1) {
+      requestAnimationFrame(tick);
+    }
+  }
+
+  requestAnimationFrame(tick);
 }
 
 function renderAiAdvicePlaceholder(message) {
@@ -2187,24 +2474,6 @@ function showAiAdviceMessage(message) {
 
 function renderAiAdvice(response) {
   const advice = response.advice;
-  const companyRoleContext = advice.company_role_context || {
-    company_name: "",
-    company_scale: "unknown",
-    role_title: advice.normalized_job?.role_title || "",
-    hiring_context_summary: "当前模型版本未返回公司语境。",
-    historical_hiring_evidence: "用户材料未提供，无法核验",
-  };
-  const applicationFormGuidance = advice.application_form_guidance || {
-    keep_in_resume: [],
-    usually_form_only: [],
-    avoid_duplicate_items: [],
-  };
-  const hrPerspectiveData = advice.hr_perspective || {
-    screening_decision: "borderline",
-    first_screen_strengths: [],
-    first_screen_concerns: [],
-    likely_interview_questions: [],
-  };
   elements.aiAdviceContent.replaceChildren();
   const providerLabel = response.provider ? `${response.provider} / ${response.model}` : response.model;
   const finalScore = response.final_scoring?.score;
@@ -2218,162 +2487,12 @@ function renderAiAdvice(response) {
     ? `AI 建议已生成 · ${providerLabel} · 规则分数保持 ${response.rule_score}/100`
     : `AI 综合分析已生成 · ${providerLabel}${thinkingLabel}${timingLabel} · 最终分 ${finalScore}/100`;
 
-  const summary = createAdviceCard("整体判断", [advice.summary]);
-
-  const finalScoringCard = response.final_scoring
-    ? createAdviceCard("综合评分", [
-        `${response.final_scoring.score}/100`,
-        `关键词 ${response.final_scoring.keyword_match_score} · 语义 ${response.final_scoring.semantic_match_score} · 经历 ${response.final_scoring.experience_match_score} · 简历质量 ${response.final_scoring.resume_quality_score} · 能力对齐 ${response.final_scoring.capability_alignment_score}`,
-        `加分 ${response.final_scoring.credential_bonus} · 核心技能惩罚 ${response.final_scoring.core_skill_penalty} · 分数上限 ${response.final_scoring.score_cap}`,
-      ])
-    : null;
-
-  const capabilityAssessmentCard = createAdviceCard(
-    "岗位能力确认",
-    response.capability_assessments?.length
-      ? response.capability_assessments.map(
-          (item) =>
-            `${item.title}｜${proficiencyText(item.proficiency)}｜${item.evidence || "未补充额外证据"}`,
-        )
-      : ["本次未填写能力自评，能力对齐分仅依据简历与 JD。"],
-  );
-
-  const normalizedJob = createAdviceCard(
-    "JD 规范化",
-    [
-      `岗位：${advice.normalized_job.role_title}`,
-      advice.normalized_job.jd_summary,
-      `核心职责：${advice.normalized_job.core_responsibilities.join("；")}`,
-      advice.normalized_job.technical_questions?.length
-        ? `技术问题：${advice.normalized_job.technical_questions.map((item) => `${item.question}（${item.skill_area}）`).join("；")}`
-        : "技术问题：未识别到单独技术问答",
-    ],
-  );
-
-  const requirements = createAdviceCard(
-    "岗位要求重要程度",
-    advice.normalized_job.requirements.map(
-      (item) =>
-        `${importanceText(item.importance)}｜权重 ${item.weight}｜${item.title}：${item.reason}。期望证据：${item.evidence_expected}`,
-    ),
-  );
-
-  const rubric = createAdviceCard(
-    "LLM 评分口径",
-    advice.scoring_rubric.map((item) => `权重 ${item.weight}｜${item.dimension}：${item.what_good_looks_like}`),
-  );
-
-  const evidence = createAdviceCard(
-    "简历证据强度量化",
-    advice.evidence_review.map(
-      (item) =>
-        `${item.title}｜${importanceText(item.importance)}｜${levelLabel(item.level)}｜证据 ${item.evidence_score}/100｜置信度 ${item.confidence}/100：${item.resume_evidence}；缺口：${item.gap}；原因：${item.why_it_matters}`,
-    ),
-  );
-
-  const quantifiedGaps = createAdviceCard(
-    "Gap Evidence 量化",
-    advice.quantified_gaps.map(
-      (item) =>
-        `${item.requirement}｜${importanceText(item.importance)}｜缺口 ${item.gap_score}/100｜${impactText(item.impact_on_match)}：当前证据：${item.current_evidence}；缺失证据：${item.missing_evidence}；建议：${item.recommended_fix}`,
-    ),
-  );
-
-  const actions = createAdviceCard(
-    "优先修改动作",
-    advice.top_actions.map(
-      (item) => `${priorityText(item.priority)}｜${item.target_section}：${item.action}。示例：${item.example}`,
-    ),
-  );
-
-  const rewrites = createAdviceCard(
-    "STAR 改写示例",
-    advice.rewrite_examples.map((item) => `Before：${item.before}\nAfter：${item.after}\n为什么更好：${item.why_better}`),
-  );
-
-  const credentials = createAdviceCard(
-    "证书与获奖判断",
-    advice.credential_review?.length
-      ? advice.credential_review.map(
-          (item) =>
-            `${item.credential_type === "award" ? "奖项" : "证书"}｜${item.name}｜相关性 ${item.relevance_score}/100｜${credibilityText(item.credibility)}｜加成 ${item.score_bonus}：${item.rationale}`,
-        )
-      : ["简历中未识别到可评估的证书或奖项。"],
-  );
-
-  const companyContext = createAdviceCard("公司与岗位语境", [
-    `公司：${companyRoleContext.company_name || "未提供"}｜${companyScaleText(companyRoleContext.company_scale)}`,
-    `岗位：${companyRoleContext.role_title || advice.normalized_job.role_title}`,
-    companyRoleContext.hiring_context_summary,
-    `历史招聘依据：${companyRoleContext.historical_hiring_evidence}`,
+  const summaryCard = createAdviceCard("已整理进 STAR 卡片", [
+    advice.summary || "AI 建议已生成，请点击上方四张卡片查看证据、缺口和修改动作。",
+    "页面已隐藏冗长的 JD 规范化、评分口径和基础 Gap Evidence，只保留会影响修改决策的内容。",
   ]);
-
-  const benchmark = advice.benchmark_comparison || {
-    benchmark_available: false,
-    source_notice: "未提供可靠录用样本，本次只依据 JD 分析。",
-    typical_education_background: [],
-    common_awards_or_credentials: [],
-    common_research_directions: [],
-    common_internship_experience: [],
-    candidate_comparison: "暂无可核验基准。",
-  };
-  const benchmarkCard = createAdviceCard("录用背景基准", [
-    benchmark.source_notice,
-    benchmark.benchmark_available
-      ? `院校与教育背景：${benchmark.typical_education_background.join("；") || "未统计"}`
-      : "院校与教育背景：无可靠聚合数据",
-    benchmark.benchmark_available
-      ? `奖项或证书：${benchmark.common_awards_or_credentials.join("；") || "未统计"}`
-      : "奖项或证书：无可靠聚合数据",
-    benchmark.benchmark_available
-      ? `论文或研究方向：${benchmark.common_research_directions.join("；") || "未统计"}`
-      : "论文或研究方向：无可靠聚合数据",
-    benchmark.benchmark_available
-      ? `常见实习经历：${benchmark.common_internship_experience.join("；") || "未统计"}`
-      : "常见实习经历：无可靠聚合数据",
-    benchmark.candidate_comparison,
-  ]);
-
-  const applicationGuidance = createAdviceCard("网申表单与简历边界", [
-    `建议保留在简历：${applicationFormGuidance.keep_in_resume.join("；") || "无额外建议"}`,
-    `通常由网申表单填写：${applicationFormGuidance.usually_form_only.join("；") || "无"}`,
-    `避免重复堆入简历：${applicationFormGuidance.avoid_duplicate_items.join("；") || "无"}`,
-  ]);
-
-  const hrPerspective = createAdviceCard("目标公司 HR 初筛视角", [
-    `初筛判断：${screeningDecisionText(hrPerspectiveData.screening_decision)}`,
-    `优点：${hrPerspectiveData.first_screen_strengths.join("；") || "暂无明确证据"}`,
-    `顾虑：${hrPerspectiveData.first_screen_concerns.join("；") || "暂无"}`,
-    `可能追问：${hrPerspectiveData.likely_interview_questions.join("；") || "暂无"}`,
-  ]);
-
-  const contract = response.analysis_contract
-    ? createAdviceCard("分析边界", [
-        response.analysis_contract.final_score_policy,
-        `Evidence：${response.analysis_contract.evidence_score_scale}`,
-        `Gap：${response.analysis_contract.gap_score_scale}`,
-        response.analysis_contract.privacy_boundary,
-      ])
-    : null;
-
-  elements.aiAdviceContent.append(
-    summary,
-    ...(finalScoringCard ? [finalScoringCard] : []),
-    capabilityAssessmentCard,
-    normalizedJob,
-    requirements,
-    rubric,
-    evidence,
-    quantifiedGaps,
-    credentials,
-    companyContext,
-    benchmarkCard,
-    applicationGuidance,
-    hrPerspective,
-    actions,
-    rewrites,
-    ...(contract ? [contract] : []),
-  );
+  elements.aiAdviceContent.append(summaryCard);
+  renderStarInsights(state.lastResult);
 }
 
 function applyAiScoringToResult(result, response) {
@@ -2395,12 +2514,11 @@ function renderResultPage(result) {
 function renderResult(result) {
   state.lastResult = result;
 
-  elements.scoreRing.style.setProperty("--score", result.score);
-  elements.scoreValue.textContent = result.score;
+  animateScore(result.score);
   elements.scoreLabel.textContent = result.final_scoring ? scoreLabel(result.score) : "关键词初步匹配";
   elements.scoreDetail.textContent = result.final_scoring
-    ? result.final_scoring.formula
-    : `关键词初步公式：${result.score_details.formula}`;
+    ? "点击综合分数查看完整评分过程"
+    : "点击综合分数查看关键词初步评分过程";
   elements.matchedWeight.textContent = result.score_details.matched_weight;
   elements.totalWeight.textContent = result.score_details.total_job_weight;
   renderScoringProcess(result.final_scoring, result.base_rule_score ?? result.score);
@@ -2412,6 +2530,7 @@ function renderResult(result) {
   renderCategorySummary(result.category_summary);
   renderPriorityGaps(result.priority_gaps);
   renderSuggestions(result.suggestion_items);
+  renderStarInsights(result);
   if (result.ai_advice) {
     renderAiAdvice(result.ai_advice);
   } else {
@@ -2434,6 +2553,7 @@ function renderEmptyResult() {
   renderCategorySummary([]);
   renderPriorityGaps([]);
   renderSuggestions([], false);
+  renderStarInsights(null);
   renderAiAdvicePlaceholder("完成基础分析后可生成");
 }
 
@@ -2548,6 +2668,28 @@ function bindEvents() {
     if (event.target === elements.inputAlert) {
       elements.inputAlert.hidden = true;
     }
+  });
+
+  elements.scoreBreakdownTrigger.addEventListener("click", () => {
+    elements.scoreBreakdownModal.hidden = false;
+    elements.scoreBreakdownClose.focus();
+  });
+
+  elements.scoreBreakdownClose.addEventListener("click", () => {
+    elements.scoreBreakdownModal.hidden = true;
+    elements.scoreBreakdownTrigger.focus();
+  });
+
+  elements.scoreBreakdownModal.addEventListener("click", (event) => {
+    if (event.target === elements.scoreBreakdownModal) {
+      elements.scoreBreakdownModal.hidden = true;
+    }
+  });
+
+  elements.starCardGrid.addEventListener("click", (event) => {
+    const card = event.target.closest("[data-star-key]");
+    if (!card) return;
+    renderStarInsights(state.lastResult, card.dataset.starKey);
   });
 
   elements.useExampleButton.addEventListener("click", () => {
@@ -2677,6 +2819,9 @@ function bindEvents() {
       }
       if (!elements.inputAlert.hidden) {
         elements.inputAlert.hidden = true;
+      }
+      if (!elements.scoreBreakdownModal.hidden) {
+        elements.scoreBreakdownModal.hidden = true;
       }
       if (!elements.authModal.hidden) {
         closeAuthModal();
@@ -2848,10 +2993,9 @@ function bindEvents() {
     try {
       const response = await generateAiAdvice(resumeText, jobText);
       applyAiScoringToResult(state.lastResult, response);
-      elements.scoreRing.style.setProperty("--score", state.lastResult.score);
-      elements.scoreValue.textContent = state.lastResult.score;
+      animateScore(state.lastResult.score);
       elements.scoreLabel.textContent = scoreLabel(state.lastResult.score);
-      elements.scoreDetail.textContent = response.final_scoring.formula;
+      elements.scoreDetail.textContent = "点击综合分数查看完整评分过程";
       renderScoringProcess(response.final_scoring, state.lastResult.base_rule_score);
       renderAiAdvice(response);
       elements.runNote.textContent = "AI 综合分析已生成";
